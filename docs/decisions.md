@@ -1231,3 +1231,26 @@ meshes; vertical exaggeration is renderer metadata applied on Z, preserving phys
 The aggregate referenced binary asset budget is below 20 MB decimal, leaving 50 kB for JSON metadata. Terrain is downsampled, while up to 128 SPH surface
 snapshots are included in time order only while the combined scene assets fit the budget. M0 can
 build a Delft3D near-field water surface from the paired near-field DEM and maximum-depth raster.
+
+## 2026-09-30 — Feature 1: site registry and onboarding (DECIDED with user)
+
+1. **Bundled sites** are listed in `config/sites.yaml` (`bundled: [teesta]`). Every other site is
+   registered at runtime by `POST /sites` and persisted at `data/<site_id>/config/<site_id>.yaml`
+   *before* its onboarding job is queued (`backend/m0_api/site_registry.py`). `KNOWN_SITE_IDS` is
+   gone. No new SQLite tables (contract §4.5 unchanged).
+2. **Fresh-clone Teesta status** is `onboarding` / `configured_not_onboarded` until a real
+   onboarding job completes; status is derived from the site's latest onboarding job
+   (`job_stage_<stage>`, `failed` + the job's error code, `ready`). Site list/detail are built
+   from the saved config; the contract examples are no longer used for sites.
+3. **Rishi Ganga** gets no special case: generic `site_not_found` until someone onboards it.
+4. **Duplicates:** 409 `site_already_exists` for any registered id or any repo `sites/*.yaml` id
+   (except the test fixtures below); 409 `site_name_taken` for an exact duplicate name, ignoring
+   case and extra whitespace.
+5. **Test fixtures:** `TEST_FIXTURE_SITE_IDS = (demo_valley, synth_engdam)` may be onboarded
+   through the API (the test suite does so); only `demo_valley` is routed to the I-1 synthetic
+   path (`SYNTHETIC_FIXTURE_SITE_IDS`).
+6. **Registration rule** beyond the schema: a non-empty `site.name` and a non-null far-field bbox
+   (a placeholder value is fine) — `SiteSummary.bbox_lonlat` requires four numbers.
+7. `load_site_config(site_id)` without `sites_dir` now looks in the repo `sites/` first, then the
+   onboarded config under the data dir, so M1/M6/M7 CLIs and API helpers find onboarded sites
+   without changes. A bundled site can never be shadowed by a data copy.

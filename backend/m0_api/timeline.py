@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from backend.m0_api import mocks, registry, rendering
+from backend.m0_api import registry, rendering
 from backend.m5_emulator import timeline as m5_timeline
 from backend.shared.grid import FLOAT_NODATA, UINT8_NODATA
 
@@ -28,7 +28,7 @@ def find_query_timeline_dir(query_id: str) -> tuple[str, Path] | None:
     """`(site_id, timeline_dir)` for whichever known site actually has this
     query's timeline inputs written, or `None`."""
     roots = {p.name for p in registry.data_dir().iterdir() if p.is_dir()} if registry.data_dir().exists() else set()
-    for site_id in sorted(set(mocks.KNOWN_SITE_IDS) | roots):
+    for site_id in sorted(roots):
         timeline_dir = registry.data_dir() / site_id / "queries" / query_id / "timeline"
         if (timeline_dir / "timeline_data.json").is_file():
             return site_id, timeline_dir

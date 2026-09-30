@@ -2,9 +2,8 @@
 from the actual request so responses look consistent with what the client
 asked for.
 
-Used by every endpoint except the job endpoints (`POST /sites`,
-`GET /jobs/{id}`), which read and write `data/registry.sqlite` (see
-`jobs.py`, `worker.py`). There are no real M1-M7 outputs behind these mocks
+Used by the endpoints that are still mocked. Not used for sites or jobs: `POST /sites`,
+`GET /sites[/{id}]` and `GET /jobs/{id}` are real (`site_registry.py`, `jobs.py`, `worker.py`). There are no real M1-M7 outputs behind these mocks
 yet (CLAUDE.md rule 2: "every module runs end-to-end on synthetic data ...
 before real data exists").
 """
@@ -16,12 +15,8 @@ from typing import Any
 
 from backend.m0_api import schemas
 
-# Sites this mock server "knows about" — matches sites/*.yaml. Any other
-# syntactically valid site_id gets a 404 (contract §2.7 `site_not_found`).
-# Rishi Ganga is not in this MVP: the 2021 Chamoli event was a rock-ice avalanche / mass flow,
-# not a dam breach, and there is no sites/rishiganga.yaml (docs/progress.md 2026-09-28 "Demo
-# stabilization pass, item 4").
-KNOWN_SITE_IDS = ("teesta",)
+# Which sites exist is no longer decided here: `backend/m0_api/site_registry.py` serves every
+# bundled (`config/sites.yaml`) or onboarded (`POST /sites`) site.
 
 _ID_KEYS = {"site_id", "query_id", "job_id", "event_id", "run_id", "scenario_id"}
 

@@ -186,6 +186,13 @@ const fixtures: Record<string, unknown> = {
   extent, geojson, breachParams, scenarioDesign, error: errorExample,
 };
 
+/** Contract §2.7 error message, either bare or wrapped by FastAPI's HTTPException as `{detail: ...}`. */
+function errorMessage(payload: unknown): string | undefined {
+  type Envelope = {error?: {message?: string}};
+  const body = payload as (Envelope & {detail?: Envelope}) | undefined;
+  return body?.error?.message ?? body?.detail?.error?.message;
+}
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly payload?: unknown) {
     super(message);
@@ -201,7 +208,7 @@ async function request<T>(path: string, options: RequestInit = {}, fixture?: key
   });
   const payload: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
   if (!response.ok) {
-    const message = (payload as {error?: {message?: string}} | undefined)?.error?.message;
+    const message = errorMessage(payload);
     throw new ApiError(message || `API request failed (${response.status})`, response.status, payload);
   }
   return payload as T;
@@ -230,7 +237,7 @@ export const api = {
     const response = await fetch(`${baseUrl}/export/${encodeURIComponent(queryId)}?format=${format}`);
     if (!response.ok) {
       const payload = await response.json().catch(() => undefined);
-      const message = (payload as {error?: {message?: string}} | undefined)?.error?.message;
+      const message = errorMessage(payload);
       throw new ApiError(message || `API request failed (${response.status})`, response.status, payload);
     }
     return response;

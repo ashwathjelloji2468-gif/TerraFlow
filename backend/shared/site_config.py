@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 import warnings
 from datetime import date, datetime
@@ -549,14 +550,35 @@ def _resolve_path(path_or_id: str | Path, sites_dir: str | Path | None) -> Path:
     p = Path(path_or_id)
     if p.suffix in (".yaml", ".yml"):
         return p
-    return Path(sites_dir or SITES_DIR) / f"{path_or_id}.yaml"
+    if sites_dir is not None:
+        return Path(sites_dir) / f"{path_or_id}.yaml"
+    # Default lookup: the repo's bundled `sites/<id>.yaml` first (so a bundled site can never be
+    # shadowed), then a site onboarded through `POST /sites`, persisted at
+    # `<data dir>/<id>/config/<id>.yaml` (contract §1.8; `SIH26_DATA_DIR` overrides the data dir,
+    # the same variable `backend/m0_api/registry.py` reads).
+    bundled = SITES_DIR / f"{path_or_id}.yaml"
+    if bundled.is_file():
+        return bundled
+    onboarded = onboarded_config_path(str(path_or_id))
+    return onboarded if onboarded.is_file() else bundled
+
+
+def default_data_dir() -> Path:
+    """`$SIH26_DATA_DIR`, else `<repo>/data` (contract §1.8)."""
+    return Path(os.environ.get("SIH26_DATA_DIR", SITES_DIR.parent / "data"))
+
+
+def onboarded_config_path(site_id: str, data_dir: str | Path | None = None) -> Path:
+    """Where an onboarded site's config is persisted: `<data dir>/<site_id>/config/<site_id>.yaml`."""
+    return Path(data_dir or default_data_dir()) / site_id / "config" / f"{site_id}.yaml"
 
 
 def load_site_config(path_or_id: str | Path, sites_dir: str | Path | None = None) -> SiteConfig:
     """Load and validate a site config.
 
     `path_or_id` is a path to a .yaml file or a site id looked up in `sites_dir`
-    (default: the repo's `sites/`). Raises FileNotFoundError or SiteConfigError.
+    (default: the repo's `sites/`, then the onboarded config under the data dir -- see
+    `_resolve_path`). Raises FileNotFoundError or SiteConfigError.
     Emits one PlaceholderWarning (and a log warning) listing every placeholder.
     """
     path = _resolve_path(path_or_id, sites_dir)

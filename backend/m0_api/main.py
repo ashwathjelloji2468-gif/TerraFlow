@@ -20,9 +20,12 @@ base response; `PUT /sites/{id}/recheck` persists the schedule for real.
 `jobs.STAGES` has no `rerun` entry yet (contract §5.3 lists no stages for it),
 so this does not actually skip terrain the way "re-run" implies.
 
-Still mocked: most endpoints. Scene3D builds real assets when a query's median depth and its
-site terrain are present, otherwise it serves the contract example. `site_id` is checked only
-against a short list of sites this server "knows about" (`mocks.KNOWN_SITE_IDS`).
+Sites are real: `site_registry` serves every registered site (bundled in `config/sites.yaml`, or
+onboarded through `POST /sites` and persisted at `data/<site_id>/config/<site_id>.yaml`), and
+`GET /sites`/`GET /sites/{id}` are built from the saved config plus the site's real job state.
+
+Still mocked: most other endpoints. Scene3D builds real assets when a query's median depth and its
+site terrain are present, otherwise it serves the contract example.
 
 Run: `uvicorn backend.m0_api.main:app --reload --port 8000`
 """
@@ -37,7 +40,7 @@ from fastapi import Body, FastAPI, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
-from backend.m0_api import jobs, mock_files, mocks, onboarding, registry, rendering, schemas, site_status
+from backend.m0_api import jobs, mock_files, mocks, onboarding, registry, rendering, schemas, site_registry, site_status
 from backend.m0_api import compare as api_compare
 from backend.m0_api import real_query
 from backend.m0_api import scene3d as api_scene3d
@@ -86,15 +89,22 @@ def _validated_json(schema_name: str, payload: Any, status_code: int = 200) -> J
 
 
 def _require_known_site(site_id: str) -> None:
-    if site_id not in mocks.KNOWN_SITE_IDS and not (registry.data_dir() / site_id / "config" / f"{site_id}.yaml").is_file():
-        message = (f"No site '{site_id}' is configured."
-                   if site_id != "rishiganga" else
-                   "Rishi Ganga is not configured in this MVP: the 2021 Chamoli event was a "
-                   "rock-ice avalanche / mass flow, not a dam breach.")
+    if not site_registry.exists(site_id):
         raise HTTPException(
             status_code=404,
-            detail=mocks.error("site_not_found", message, {"site_id": site_id}),
+            detail=mocks.error("site_not_found", f"No site '{site_id}' is configured.", {"site_id": site_id}),
         )
+
+
+def _site_config_or_error(site_id: str):
+    """A registered site's saved config, or an explicit 422 if the saved file no longer validates."""
+    _require_known_site(site_id)
+    try:
+        return site_registry.load(site_id)
+    except SiteConfigError as exc:
+        raise HTTPException(status_code=422, detail=mocks.error(
+            "site_config_invalid", f"The saved configuration for site '{site_id}' is invalid: {exc}",
+            {"site_id": site_id})) from exc
 
 
 def _validate_request_body(schema_name: str, body: Any) -> None:
@@ -128,60 +138,22 @@ def get_styles() -> JSONResponse:
 # =============================================================================
 @app.get(f"{API}/sites")
 def list_sites() -> JSONResponse:
-    # The example fixture may list sites this MVP doesn't actually serve (contract examples are
-    # reference fixtures, not a live site registry): only list ones `_require_known_site` would
-    # also accept, so a listed site never 404s when opened.
-    sites = [s for s in mocks.mock_response("site_list.example.json")
-             if s["site_id"] in mocks.KNOWN_SITE_IDS
-             or (registry.data_dir() / s["site_id"] / "config" / f"{s['site_id']}.yaml").is_file()]
-    for config_path in registry.data_dir().glob("*/config/demo_valley.yaml"):
-        site_id = config_path.parent.parent.name
-        if not any(item["site_id"] == site_id for item in sites):
-            cfg = load_site_config(site_id, sites_dir=config_path.parent)
-            ready = (config_path.parent.parent / "demo_ready.json").is_file()
-            sites.append({"site_id":site_id,"name":cfg.site.name,"status":"demo_mode" if ready else "onboarding","status_reason_key":"synthetic_demo","emulator_ready":False,"models_available":["delft3d"],"bbox_lonlat":cfg.domains.far_field.bbox.value,"events":[e.id for e in cfg.events],"has_placeholders":bool(cfg.has_placeholders)})
-    sites = [site_status.overlay(s["site_id"], s) for s in sites]
+    """Every registered site, built from its saved config and real job state. A site whose saved
+    config no longer validates is left out of the list (and logged); `GET /sites/{id}` reports it
+    explicitly as `site_config_invalid`."""
+    sites = []
+    for site_id in site_registry.list_site_ids():
+        try:
+            sites.append(site_status.overlay(site_id, site_registry.summary(site_id)))
+        except (FileNotFoundError, SiteConfigError) as exc:
+            log.warning("list_sites: skipping site '%s' with an unreadable config: %s", site_id, exc)
     return _validated_json("site_list.schema.json", sites)
 
 
 @app.get(f"{API}/sites/{{site_id}}")
 def get_site(site_id: SiteIdPath) -> JSONResponse:
-    _require_known_site(site_id)
-    if site_id == "demo_valley" and (registry.data_dir() / site_id / "config" / f"{site_id}.yaml").is_file():
-        cfg = load_site_config(site_id, sites_dir=registry.data_dir() / site_id / "config")
-        detail = mocks.mock_response("site_detail.example.json", site_id=site_id)
-        ready = (registry.data_dir() / site_id / "demo_ready.json").is_file()
-        detail.update({"site_id":site_id,"name":cfg.site.name,"status":"demo_mode" if ready else "onboarding","status_reason_key":"synthetic_demo",
-                       "has_placeholders":bool(cfg.has_placeholders),"bbox_lonlat":cfg.domains.far_field.bbox.value,"emulator_ready":False,"models_available":["delft3d"],"events":[e.id for e in cfg.events]})
-        west, south, east, north = cfg.domains.far_field.bbox.value
-        detail["domain"] = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[west,south],[east,south],[east,north],[west,north],[west,south]]]},"properties":{"synthetic":True}}]}
-        detail["centreline"] = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[(west+east)/2,north],[(west+east)/2,(south+north)/2],[(west+east)/2,south]]},"properties":{"synthetic":True}}]}
-        detail["dams"] = [{"dam_id":f"{site_id}__{dam.id}","name":dam.name,"kind":dam.kind,"order":i+1,"key_specs":{}} for i,dam in enumerate(cfg.dams)]
-        detail["emulator_inputs"] = []
-        detail["pois"] = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":poi.location.value},"properties":{"poi_id":f"{site_id}__poi__{poi.id}","name":poi.name,"kind":poi.category,"chainage_m":float(i*100)}} for i,poi in enumerate(cfg.points_of_interest)]}
-        detail["validation_summary"] = {"extent":"UNKNOWN","depth":"UNKNOWN","arrival":"UNKNOWN","velocity":"UNKNOWN"}
-        detail["caveats"] = [{"id":"synthetic_demo","severity":"warning","text_key":"caveat_synthetic_demo"}]
-        return _validated_json("site_detail.schema.json", detail)
-    detail = mocks.mock_response("site_detail.example.json", site_id=site_id)
-    detail = site_status.overlay(site_id, detail)
-    # Real dam locations, when a real sites/<site_id>.yaml exists: `key_specs` is an open
-    # dict of SourcedValues by contract (§5.1), so this adds no schema field -- it overlays
-    # the mock dams[] with the real dam_id/location/breach_location this site actually has.
-    # Powers the 3D view's breach marker (docs/progress.md 2026-09-28).
-    try:
-        cfg = load_site_config(site_id)
-        detail["dams"] = [
-            {
-                "dam_id": f"{site_id}__{dam.id}", "name": dam.name, "kind": dam.kind, "order": i + 1,
-                "key_specs": {
-                    "location": {"value": dam.location.value, "unit": dam.location.unit, "source": dam.location.source, "status": dam.location.status},
-                    "breach_location": {"value": dam.breach_location.value, "unit": dam.breach_location.unit, "source": dam.breach_location.source, "status": dam.breach_location.status},
-                },
-            }
-            for i, dam in enumerate(cfg.dams)
-        ]
-    except (FileNotFoundError, SiteConfigError):
-        pass  # no real config for this site_id; keep the mock example's dams as-is
+    _site_config_or_error(site_id)
+    detail = site_status.overlay(site_id, site_registry.detail(site_id))
     return _validated_json("site_detail.schema.json", detail)
 
 
@@ -198,20 +170,21 @@ def create_site(body: Annotated[dict, Body(...)]) -> JSONResponse:
             status_code=422,
             detail=mocks.error("invalid_request", f"site_config.site.id must match {SITE_ID_PATTERN}.", {"field": "site_config.site.id"}),
         )
-    conn = registry.connect()
+    demo_mode = bool(body.get("demo_mode", False))
     try:
-        active = jobs.find_active_job(conn, site_id)
-        if active is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=mocks.error("site_onboarding_in_progress", f"Site '{site_id}' already has an active job.", {"site_id": site_id, "job_id": active}),
-            )
-        job_id = jobs.create_job(conn, "onboarding", site_id, demo_mode=bool(body.get("demo_mode", False)),
-                                 payload={"site_config": site_config, "i1_synthetic": site_id == "demo_valley" and bool(body.get("demo_mode", False))})
-    finally:
-        conn.close()
-    if site_id == "demo_valley" and body.get("demo_mode"):
-        onboarding.materialize_site_config(site_id, site_config, registry.data_dir())
+        # Persist the validated config first, then queue the job inside the same registration:
+        # if queuing fails the config is rolled back, so no half-registered site is left behind.
+        with site_registry.register(site_config):
+            conn = registry.connect()
+            try:
+                job_id = jobs.create_job(
+                    conn, "onboarding", site_id, demo_mode=demo_mode,
+                    payload={"site_config": site_config,
+                             "i1_synthetic": site_registry.is_synthetic_fixture(site_id) and demo_mode})
+            finally:
+                conn.close()
+    except site_registry.SiteRegistrationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=mocks.error(exc.code, exc.message, exc.details)) from exc
     return _validated_json("site_create_accepted.schema.json", {"job_id": job_id, "site_id": site_id}, status_code=202)
 
 
@@ -240,8 +213,7 @@ def set_recheck(site_id: SiteIdPath, body: Annotated[dict, Body(...)]) -> JSONRe
     site_status.set_frequency(
         site_id, body["frequency_days"], body.get("lake_area_change_threshold_pct")
     )
-    summary = mocks.mock_response("site_summary.example.json", site_id=site_id)
-    summary = site_status.overlay(site_id, summary)
+    summary = site_status.overlay(site_id, site_registry.summary(site_id, _site_config_or_error(site_id)))
     return _validated_json("site_summary.schema.json", summary)
 
 
@@ -256,8 +228,8 @@ def rerun_site(site_id: SiteIdPath) -> JSONResponse:
     decision (rerun stage list + contract §5.3 change) before it can be done honestly."""
     _require_known_site(site_id)
     try:
-        cfg = load_site_config(site_id)
-    except SiteConfigError as e:
+        cfg = site_registry.load(site_id)
+    except (FileNotFoundError, SiteConfigError) as e:
         raise HTTPException(
             status_code=404,
             detail=mocks.error("site_not_found", f"No site config for '{site_id}': {e}", {"site_id": site_id}),
@@ -352,7 +324,8 @@ def get_flood_layer(query_id: QueryIdPath, layer_filename: str) -> Response:
     # Contract §1.8: real GeoTIFFs land at data/<site_id>/queries/<query_id>/layers/.
     # M5 doesn't produce them yet, so this is a real render only when one has been
     # placed there by hand (e.g. a test); otherwise fall back to the mock PNG.
-    for site_id in (*mocks.KNOWN_SITE_IDS, *(p.name for p in registry.data_dir().iterdir() if p.is_dir())):
+    site_dirs = [p.name for p in registry.data_dir().iterdir() if p.is_dir()] if registry.data_dir().is_dir() else []
+    for site_id in site_dirs:
         tif_path = registry.data_dir() / site_id / "queries" / query_id / "layers" / f"{layer_id}.tif"
         if tif_path.is_file():
             try:
@@ -546,7 +519,7 @@ def get_validation(site_id: SiteIdPath, event: str | None = Query(default=None))
     has_real_run = real_run_meta is not None
     try:
         site_events = [e.id for e in load_site_config(site_id).events]
-    except SiteConfigError:
+    except (FileNotFoundError, SiteConfigError):
         site_events = []
     if has_real_run and not event:
         payload = {"contract_version": "0.3.0", "site_id": site_id, "model": "delft3d",
