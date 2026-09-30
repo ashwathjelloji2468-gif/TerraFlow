@@ -29,6 +29,15 @@ from backend.m2_breach.z20 import peak_discharge_z20
 
 CSV_PATH = Path(__file__).resolve().parents[2] / "tests" / "data" / "breach_cases.csv"
 
+# Missing-artifact gate: the case table is not in the repository (the root .gitignore `data/`
+# pattern also matches tests/data/, and scripts/build_breach_cases.py named in
+# docs/data_sources.md is absent). Skip clearly instead of erroring in a fresh checkout.
+requires_case_table = pytest.mark.skipif(
+    not CSV_PATH.is_file(),
+    reason="missing test artifact tests/data/breach_cases.csv "
+           "(historical dam-break case table, not committed; see docs/data_sources.md)",
+)
+
 # docs/paper_azmi.md Table 7: {method: (output, paper_median_pe, paper_mad)}
 TABLE_7 = {
     "F16_Qp": ("peak_outflow_m3s", -10.1, 31.9),
@@ -114,6 +123,7 @@ def median_pe_by_method() -> dict[str, list[float]]:
     return _medians()
 
 
+@requires_case_table
 @pytest.mark.parametrize("method", sorted(TABLE_7))
 def test_median_pe_in_paper_ballpark(method, median_pe_by_method):
     output, paper_median, paper_mad = TABLE_7[method]

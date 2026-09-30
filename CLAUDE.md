@@ -23,8 +23,8 @@ Demo sites:
 | `docs/decisions.md` | Team decisions (thresholds, cascade approach, run budget...) |
 | `docs/data_sources.md` | Every source, with IDs like `src_014` used in site configs |
 | `docs/paper_azmi.md`, `docs/paper_donnelly.md` | Method summaries |
-| `docs/equations.md` | Verified breach equations — the ONLY place to take equations from |
-| `docs/m5_spec.md` | Emulator spec, synthetic world, confidence rule, acceptance tests |
+| `docs/Equations.md` | Verified breach equations — the ONLY place to take equations from |
+| `docs/m5_specs.md` | Emulator spec, synthetic world, confidence rule, acceptance tests |
 | `docs/events/*.md` | Historical event reconstructions |
 | `sites/*.yaml` | Site configs |
 | `frontend/CLAUDE.md` | Extra rules when working in the frontend |
@@ -54,7 +54,7 @@ M3 and M4 MUST produce outputs in the identical schema so SPH-vs-Delft3D compari
 3. NEVER invent site data, dam specs, event facts, coefficients, validation metrics or
    confidence numbers. Facts come from `sites/*.yaml` (SourcedValue with source + status).
    Missing facts stay `status: placeholder`; results then set `has_placeholders: true`.
-4. Equations come only from `docs/equations.md`. One function per equation; docstring gives
+4. Equations come only from `docs/Equations.md`. One function per equation; docstring gives
    source, equation number, input/output units and valid range; warn outside the range.
 5. SI units everywhere, including the API. Failure time is stored in seconds even if an
    equation returns hours — convert at the function boundary. Formatting is the frontend's job.
@@ -92,7 +92,7 @@ Frontend (in `frontend/`): React + Vite, Leaflet, Three.js, Recharts, Playwright
 - DualSPHysics: v5.4.3 (GenCase v5.4.354.01, DualSPHysics5.4 v5.4.355). Windows binaries +
   examples at `/mnt/d/APPS/DualSPHysics_v5.4/` (Linux binaries under `bin/linux/`, used by
   `tests/m4_sph/test_gencase_smoke.py` when `DSPH_BIN_DIR` is set) — not checked into this repo.
-- Working pilot cases: `backend/m3_pilot/dflowfm/` and `backend/m3_cascade_pilot/` (D-Flow FM);
+- Working pilot case: `backend/m3_pilot/dflowfm/` (D-Flow FM);
   the ANUGA pilot at `backend/m3_pilot/` (`docs/decisions.md` 2026-09-26 "M3: ANUGA replaces
   Delft3D 4 FLOW") is a fallback kept for the record, not the M3 reference. M4's pilot calibration
   run — `vram_estimator.py` (in `backend/m4_sph/`, since the real case generator imports it) reads
@@ -137,13 +137,13 @@ Before working on a module, read the docs that cover it:
 
 | Area | Read |
 |---|---|
-| Site config format | `sites/_template.yaml`, example `sites/teesta.yaml` |
-| M2 breach parameters | `docs/equations.md`, `docs/paper_azmi.md` |
-| M5 emulator | `docs/m5_spec.md`, `docs/paper_donnelly.md` |
+| Site config format | `sites/template.yaml`, example `sites/teesta.yaml` |
+| M2 breach parameters | `docs/Equations.md`, `docs/paper_azmi.md` |
+| M5 emulator | `docs/m5_specs.md`, `docs/paper_donnelly.md` |
 | Impact outputs (depth classes, isochrones, population) | `docs/impact_outputs.md` |
 | Manning's n by land cover (ESA WorldCover + river channel) | `config/manning_n.csv` (all rows placeholder; unsure rows flagged in `notes`) |
 
 Rules that apply everywhere:
 - Every data value in a site config is `{value, unit, source, status}`. If any input has `status: placeholder`, the output must be labelled as placeholder too.
-- Base breach equations in `docs/equations.md` are SECONDARY (copied from Azmi). Items marked UNCLEAR or NOT STATED must not be guessed; raise an error or leave a clearly marked TODO.
+- Base breach equations in `docs/Equations.md` are SECONDARY (copied from Azmi). Items marked UNCLEAR or NOT STATED must not be guessed; raise an error or leave a clearly marked TODO.
 - Thresholds and defaults come from config, never hard-coded.
