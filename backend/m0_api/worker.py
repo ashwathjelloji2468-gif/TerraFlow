@@ -43,7 +43,7 @@ from datetime import datetime
 from pathlib import Path
 
 from backend.m0_api import jobs, registry, runner, site_status
-from backend.m0_api import onboarding
+from backend.m0_api import onboarding, site_registry
 from backend.m3_dflowfm import launcher as m3_launcher
 from backend.m7_gee import fetch as gee_fetch
 
@@ -51,9 +51,6 @@ log = logging.getLogger("m0.worker")
 
 SIM_STAGES = {"simulating"}
 
-#: Sites the scheduler considers for re-checks. Matches `mocks.KNOWN_SITE_IDS` -- kept as a
-#: separate constant so the worker doesn't import the API's mock layer for a list of site ids.
-KNOWN_SITE_IDS = ("teesta",)
 
 
 class WorkerAlreadyRunning(RuntimeError):
@@ -236,11 +233,11 @@ class Worker:
                    for model in ("delft3d", "sph"))
 
     def _schedule_rechecks(self) -> bool:
-        """Queue a `recheck` job for every known site whose schedule is due (or has never been
+        """Queue a `recheck` job for every registered site whose schedule is due (or has never been
         checked) and that has no active job already. Runs every tick; cheap (a handful of file
         stats), so no separate timer is needed."""
         queued_any = False
-        for site_id in KNOWN_SITE_IDS:
+        for site_id in site_registry.list_site_ids():
             if jobs.find_active_job(self.conn, site_id) is not None:
                 continue
             if not self._has_published_library(site_id):

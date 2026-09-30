@@ -2862,3 +2862,27 @@ output (4), JRC workbook (1), breach case table (7), pilot export (1).
 **Not changed:** `.gitignore`; XZ9 peak discharge stays blocked (`xz9.py` and its tests untouched).
 **Open decisions:** commit `breach_cases.csv` (licence check) or add its build script; whether to
 enable XZ9 peak discharge (g = 9.81 as in F16/F8) via a `docs/decisions.md` entry.
+
+## 2026-09-30 — Feature 1: dynamic site onboarding & configuration
+
+**Built:** `backend/m0_api/site_registry.py` + `config/sites.yaml` (decisions.md 2026-09-30).
+`POST /sites` runs full `SiteConfig` validation (422 lists every invalid field), rejects duplicate
+ids/names (409), persists the config, then queues the job (config rolled back if queuing fails).
+`GET /sites`, `GET /sites/{id}` and `PUT /sites/{id}/recheck` are built from the saved config and
+real job/emulator state for every site; `KNOWN_SITE_IDS` removed from `main.py`, `mocks.py`,
+`worker.py` (rechecks now cover every registered site), `scene3d.py`, `timeline.py`.
+`load_site_config` default lookup falls back to onboarded configs. Frontend: the Add-a-dam wizard
+builds a real site config (`src/data/site-config.ts`; entered values are unverified placeholders
+unless cited, blanks are null placeholders), POSTs it, polls `GET /jobs/{id}` and shows the real
+stage/error; the DEM upload gate on submit is removed; `api.ts` now surfaces the server's error
+message from FastAPI's `{detail: {error}}` envelope.
+
+**Checks:** backend `pytest -q` green (new `tests/m0_api/test_site_onboarding.py`, lookup tests in
+`tests/shared/test_site_config.py`); frontend `tsc`, `check:shell`, `test:offline`, new
+`test:site-config` pass. Playwright snapshots could not be compared in the cloud sandbox (they
+also fail on the unmodified commit there); regenerate/compare on the team machine.
+
+**Not done (later features):** a new real site stops at `terrain_failed` until raw DEM/land-cover
+inputs exist (Feature 2). Teesta-specific run/scenario paths in `real_query.py`,
+`real_timeline.py`, `real_impact.py`, compare default scenario, and frontend demo buttons are
+untouched (Features 5, 6, 9, 11).

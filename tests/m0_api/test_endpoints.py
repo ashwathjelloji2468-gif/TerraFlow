@@ -43,7 +43,7 @@ client = TestClient(app)
 
 API = "/api/v1"
 KNOWN_SITE = "teesta"
-NOT_CONFIGURED_SITE = "rishiganga"  # not in this MVP: docs/progress.md 2026-09-28 item 4
+NOT_CONFIGURED_SITE = "rishiganga"  # not bundled; an ordinary unconfigured site until onboarded
 UNKNOWN_SITE = "nosuchsite"
 QUERY_ID = "q_20260924T101500Z_3fa9c1"
 JOB_ID = "job_20260924T101500Z_b17e02"
@@ -101,13 +101,15 @@ def test_get_site_detail_known():
     assert body["site_id"] == KNOWN_SITE
 
 
-def test_get_site_detail_rishiganga_not_configured_with_reason():
+def test_get_site_detail_unconfigured_site_is_generic_site_not_found():
+    """Rishi Ganga gets no special case (docs/decisions.md 2026-09-30, decision 3): until someone
+    onboards it, it is simply a site that is not configured."""
     r = client.get(f"{API}/sites/{NOT_CONFIGURED_SITE}")
     assert r.status_code == 404
     body = r.json()
     assert_matches("error.schema.json", body["detail"])
     assert body["detail"]["error"]["code"] == "site_not_found"
-    assert "rock-ice avalanche" in body["detail"]["error"]["message"]
+    assert body["detail"]["error"]["message"] == f"No site '{NOT_CONFIGURED_SITE}' is configured."
 
 
 def test_get_site_detail_unknown_is_404_with_error_shape():
@@ -146,14 +148,18 @@ def test_create_site_bad_site_id_is_422(site_config):
     assert_matches("error.schema.json", r.json()["detail"])
 
 
-def test_create_site_twice_while_active_is_409():
+def test_create_site_twice_is_409_site_already_exists():
+    """Feature 1: a site id is persistent and unique, so a second POST of the same id is rejected
+    as a duplicate (not merely while a job is active). The active-job 409 is still covered by
+    `test_rerun_site_conflicts_with_active_job`."""
     first = client.post(f"{API}/sites", json={"site_config": valid_site_config()})
+    assert first.status_code == 202
     r = client.post(f"{API}/sites", json={"site_config": valid_site_config()})
     assert r.status_code == 409
     detail = r.json()["detail"]
     assert_matches("error.schema.json", detail)
-    assert detail["error"]["code"] == "site_onboarding_in_progress"
-    assert detail["error"]["details"]["job_id"] == first.json()["job_id"]
+    assert detail["error"]["code"] == "site_already_exists"
+    assert detail["error"]["details"]["site_id"] == "kosi"
 
 
 # =============================================================================

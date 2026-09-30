@@ -13,6 +13,10 @@ import {api, useMocks, type FloodQueryRequest, type FloodQueryResponse, type Imp
 import uiText from '../content/ui_text.json';
 import * as offlineCache from '../offline/cache-store';
 import {collectGlobalUrls, collectResourceUrls, type OfflineBundle} from '../offline/resource-list';
+import {buildSiteConfig, validateWizardSite, type WizardSite} from './site-config';
+
+export type {WizardSite, DamKind} from './site-config';
+export {siteIdFromName, validateWizardSite} from './site-config';
 
 export type Awaiting = {status: 'awaiting'; reason: string};
 
@@ -188,12 +192,14 @@ export async function exportUrl(format: 'shp' | 'kml' | 'geojson' | 'pdf', query
   return {url: URL.createObjectURL(await response.blob())};
 }
 
-/** Contract §5.2 — POST /sites (Add a Dam). */
-export async function createSite(_input: {name: string; grid: Grid; params: Params}): Promise<Awaiting & {jobId: string | null}> {
-  if (useMocks) {
-    try { const accepted = await api.createSite(api.examples.siteRequest); return {status: 'awaiting', reason: 'Mock onboarding job accepted; the legacy UI has no contract job-progress state.', jobId: accepted.job_id}; } catch { /* retain the empty state */ }
-  }
-  throw new Error(uiText.onboarding.missingInputs);
+/** Contract §5.2 — POST /sites (Add a Dam). Builds a real site config from the wizard, posts it,
+ * and returns the persistent site id and onboarding job id. Throws with the server's own
+ * message on 409/422 (duplicate id or name, invalid field) so the UI can show it. */
+export async function createSite(input: WizardSite): Promise<{siteId: string; jobId: string}> {
+  const problems = validateWizardSite(input);
+  if (problems.length) throw new Error(problems.join(' '));
+  const accepted = await api.createSite({site_config: buildSiteConfig(input), demo_mode: false});
+  return {siteId: accepted.site_id, jobId: accepted.job_id};
 }
 
 /** Contract §5.3 — GET /jobs/{job_id}. */

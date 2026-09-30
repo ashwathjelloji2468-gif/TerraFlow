@@ -14,7 +14,7 @@ from rasterio.enums import Resampling
 from rasterio.transform import Affine
 from rasterio.warp import reproject
 
-from backend.m0_api import mocks, registry
+from backend.m0_api import registry
 
 # Reserve 50 kB for the JSON response so metadata + binaries stay below 20 MB decimal.
 MAX_PAYLOAD_BYTES = 19_950_000
@@ -29,7 +29,9 @@ def _load_json(path: Path) -> dict:
 
 def find_scene_inputs(query_id: str) -> tuple[str, Path, Path] | None:
     """Return (site_id, query_dir, terrain_dir) when the query median depth exists."""
-    for site_id in mocks.KNOWN_SITE_IDS:
+    root = registry.data_dir()
+    site_ids = sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    for site_id in site_ids:
         query_dir = registry.data_dir() / site_id / "queries" / query_id
         terrain_dir = registry.data_dir() / site_id / "terrain"
         if (query_dir / "layers" / "depth_p50.tif").is_file() and (terrain_dir / "dem.tif").is_file():

@@ -249,7 +249,7 @@
     "provenance": "Provenance"
   },
   "onboarding": {
-    "missingInputs": "Onboarding cannot be submitted from this form. POST /sites requires a site ID, region and river; CRS; far-field and near-field bounds, resolutions and inflow locations; and dam IDs, types, locations and complete breach specifications. The form does not collect all these fields, and DEM/hydrology uploads are disabled. No site will be submitted.",
+    "missingInputs": "Onboarding could not be submitted.",
     "demoTitle": "Teesta III Demo",
     "demoDetail": "Open the registered South Lhonak 2023 D-Flow FM result. Reconstructed forcing and pilot-domain caveats remain visible in the result.",
     "demoOpen": "Open Teesta III Demo",
@@ -273,7 +273,13 @@
     "cachedImage": "Cached satellite image",
     "openRealRun": "Open registered Teesta event result",
     "noPairedSph": "D-Flow run only. The Teesta SPH attempt (a02) completed, but its particle-exclusion warning and anomalous depth field mean its results are under investigation and are not shown here.",
-    "libraryUnavailable": "No real scenario library is registered. The Teesta MVP contains one direct solver event run, not prepared emulator nodes."
+    "libraryUnavailable": "No real scenario library is registered. The Teesta MVP contains one direct solver event run, not prepared emulator nodes.",
+    "placeholderNotice": "Everything you enter is saved as an unverified placeholder unless you give a source. Blank fields stay empty placeholders; nothing is filled in for you.",
+    "locationHelp": "The dam location must fall inside the study-area bounds. The site ID is derived from the site name and must be unique.",
+    "terrainHelp": "Terrain is prepared by the onboarding job's terrain stage from downloaded DEM and land-cover data. Uploading a DEM here is not available yet; without prepared terrain inputs the job stops at the terrain stage and says so.",
+    "breachHelp": "Breach inputs for the empirical breach equations. Leave any value you do not know blank; it is recorded as a placeholder.",
+    "submitHelp": "This registers the site, saves its configuration, and queues a real onboarding job. The next step shows that job's actual stage and any error.",
+    "noJob": "No onboarding job has been started yet. Register the site in the previous step."
   },
   "dataLayers": {
     "realDepthName": "D-Flow FM flood outputs",

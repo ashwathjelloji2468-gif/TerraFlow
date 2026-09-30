@@ -425,3 +425,33 @@ def test_teesta_config_loads_with_placeholder_warning():
     raw = yaml.safe_load((SITES_DIR / "teesta.yaml").read_text())
     errors = list(validator.iter_errors(raw))
     assert errors == []
+
+
+# --- Feature 1: default lookup also finds onboarded sites ----------------------------------------
+def test_default_lookup_finds_an_onboarded_site_config(synth_raw, tmp_path, monkeypatch):
+    from backend.shared.site_config import load_site_config
+
+    monkeypatch.setenv("SIH26_DATA_DIR", str(tmp_path / "data"))
+    synth_raw["site"]["id"] = "onboarded_x"
+    path = tmp_path / "data" / "onboarded_x" / "config" / "onboarded_x.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(synth_raw))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert load_site_config("onboarded_x").site.id == "onboarded_x"
+
+
+def test_bundled_repo_config_wins_over_a_data_copy(tmp_path, monkeypatch):
+    from backend.shared.site_config import SITES_DIR, _resolve_path
+
+    monkeypatch.setenv("SIH26_DATA_DIR", str(tmp_path / "data"))
+    shadow = tmp_path / "data" / "teesta" / "config" / "teesta.yaml"
+    shadow.parent.mkdir(parents=True)
+    shadow.write_text("site: {id: teesta}\n")
+    assert _resolve_path("teesta", None) == SITES_DIR / "teesta.yaml"
+
+
+def test_explicit_sites_dir_is_unchanged(tmp_path):
+    from backend.shared.site_config import _resolve_path
+
+    assert _resolve_path("anything", tmp_path) == tmp_path / "anything.yaml"

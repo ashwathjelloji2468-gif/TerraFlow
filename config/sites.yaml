@@ -1,0 +1,9 @@
+# Bundled sites: site configs shipped in the repo's `sites/` folder that TerraFlow serves as
+# registered sites on a fresh clone (docs/decisions.md 2026-09-30 "Feature 1: site registry").
+#
+# Every other site is registered at runtime through `POST /api/v1/sites` and persisted at
+# `data/<site_id>/config/<site_id>.yaml` -- no source-code or config change is needed for it.
+# Test fixtures in `sites/` (demo_valley, synth_engdam) and `sites/template.yaml` are deliberately
+# NOT listed here.
+bundled:
+  - teesta
