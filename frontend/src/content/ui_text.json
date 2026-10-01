@@ -276,10 +276,11 @@
     "libraryUnavailable": "No real scenario library is registered. The Teesta MVP contains one direct solver event run, not prepared emulator nodes.",
     "placeholderNotice": "Everything you enter is saved as an unverified placeholder unless you give a source. Blank fields stay empty placeholders; nothing is filled in for you.",
     "locationHelp": "The dam location must fall inside the study-area bounds. The site ID is derived from the site name and must be unique.",
-    "terrainHelp": "Terrain is prepared by the onboarding job's terrain stage from downloaded DEM and land-cover data. Uploading a DEM here is not available yet; without prepared terrain inputs the job stops at the terrain stage and says so.",
+    "terrainHelp": "TerraFlow downloads the terrain itself once the site is registered: Copernicus GLO-30 and SRTM elevation (OpenTopography; the server needs OPENTOPOGRAPHY_API_KEY), ESA WorldCover land cover, a HydroBASINS catchment when available and GloFAS river discharge. The onboarding job compares the elevation models, picks one, and shows every step and any error in its log.",
     "breachHelp": "Breach inputs for the empirical breach equations. Leave any value you do not know blank; it is recorded as a placeholder.",
     "submitHelp": "This registers the site, saves its configuration, and queues a real onboarding job. The next step shows that job's actual stage and any error.",
-    "noJob": "No onboarding job has been started yet. Register the site in the previous step."
+    "noJob": "No onboarding job has been started yet. Register the site in the previous step.",
+    "terrainMissing": "Still empty (the onboarding job will stop with terrain_inputs_incomplete):"
   },
   "dataLayers": {
     "realDepthName": "D-Flow FM flood outputs",

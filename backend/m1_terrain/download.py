@@ -41,7 +41,7 @@ import httpx
 import rasterio
 from rasterio.merge import merge as rio_merge
 
-from backend.shared.site_config import SiteConfig, load_site_config
+from backend.shared.site_config import SiteConfig, default_data_dir, load_site_config
 
 log = logging.getLogger("m1.download")
 
@@ -60,7 +60,8 @@ def _redact_url(url: str) -> str:
 
 
 CONTRACT_VERSION = "0.3.0"
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# The data/ root is resolved at call time from `SIH26_DATA_DIR` (else `<repo>/data`), the same
+# rule the API and worker use (`backend.shared.site_config.default_data_dir`).
 ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 # ~1 km, so bilinear resampling onto the canonical grid (backend/shared/grid.py) has full
@@ -277,10 +278,37 @@ def _worldcover_source_path(base_url: str, tile: str) -> str:
     return str(Path(base_url) / fname)
 
 
+def _worldcover_tile_state(base_url: str, tile: str, client: httpx.Client | None) -> str:
+    """`"present"` or `"absent"` (the tile does not exist: ESA publishes no tile over open
+    ocean). Anything else -- a timeout, a refused connection, a 5xx or 403 -- raises
+    DownloadError: a network failure must never look like "no tile here" (Feature 2)."""
+    fname = f"ESA_WorldCover_10m_2021_v200_{tile}_Map.tif"
+    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+        return "present" if (Path(base_url) / fname).is_file() else "absent"
+    url = f"{base_url.rstrip('/')}/{fname}"
+    owns = client is None
+    client = client or httpx.Client(timeout=60.0, follow_redirects=True)
+    try:
+        resp = client.head(url)
+    except httpx.HTTPError as e:
+        raise DownloadError(f"ESA WorldCover tile {tile} could not be checked ({type(e).__name__}): {url}") from None
+    finally:
+        if owns:
+            client.close()
+    if resp.status_code == 200:
+        return "present"
+    if resp.status_code == 404:
+        return "absent"
+    raise DownloadError(f"ESA WorldCover tile {tile} request failed (HTTP {resp.status_code}): {url}")
+
+
 def fetch_worldcover(cfg: SiteConfig, raw_dir: Path, *, base_url: str = WORLDCOVER_BASE_URL,
-                      force: bool = False) -> dict:
+                      force: bool = False, client: httpx.Client | None = None) -> dict:
     """Mosaic ESA WorldCover 10 m tiles covering `cfg`'s far-field bbox (+ margin) into
-    `raw_dir/landcover_esa_worldcover.tif`. `base_url` may be a local directory (tests)."""
+    `raw_dir/landcover_esa_worldcover.tif`. `base_url` may be a local directory (tests).
+
+    A tile that does not exist (open ocean) is skipped and listed in `tiles_skipped`; a tile that
+    exists but cannot be checked or opened is a DownloadError, never a silent gap."""
     raw_dir = Path(raw_dir)
     out_path = raw_dir / "landcover_esa_worldcover.tif"
     if out_path.exists() and not force:
@@ -292,13 +320,16 @@ def fetch_worldcover(cfg: SiteConfig, raw_dir: Path, *, base_url: str = WORLDCOV
     used_tiles, skipped_tiles, datasets = [], [], []
     try:
         for tile in tiles:
+            if _worldcover_tile_state(base_url, tile, client) == "absent":
+                log.warning("ESA WorldCover tile %s does not exist (no land in this tile); skipped", tile)
+                skipped_tiles.append(tile)
+                continue
             path = _worldcover_source_path(base_url, tile)
             try:
                 datasets.append(rasterio.open(path))
-                used_tiles.append(tile)
-            except Exception as e:  # a tile with no land, or an unreachable server
-                log.warning("ESA WorldCover tile %s not available: %s", tile, e)
-                skipped_tiles.append(tile)
+            except Exception as e:
+                raise DownloadError(f"ESA WorldCover tile {tile} exists but could not be read: {e}") from None
+            used_tiles.append(tile)
         if not datasets:
             raise DownloadError(f"no ESA WorldCover tiles could be opened for bbox {bbox} (tried {tiles})")
 
@@ -395,18 +426,18 @@ def mosaic_cartodem(cfg: SiteConfig, tile_dir: str | Path, raw_dir: Path, *,
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("site_id", help="site id (a sites/<site_id>.yaml must exist)")
+    parser.add_argument("site_id", help="a registered site id (bundled sites/<id>.yaml or onboarded data/<id>/config/<id>.yaml)")
     parser.add_argument("--products", default="srtm_gl1,copernicus_glo30,worldcover",
                          help="comma-separated subset of srtm_gl1, copernicus_glo30, worldcover")
     parser.add_argument("--cartodem-dir", default=None, help="folder of manually downloaded CartoDEM .tif tiles")
     parser.add_argument("--cartodem-version", default=None, help="CartoDEM version/release (docs/data_sources.md src_037)")
     parser.add_argument("--cartodem-vertical-datum", default=None, help="CartoDEM vertical datum (docs/data_sources.md src_037)")
     parser.add_argument("--force", action="store_true", help="re-download even if the output file already exists")
-    parser.add_argument("--data-dir", default=str(DATA_DIR), help="override the data/ root")
+    parser.add_argument("--data-dir", default=None, help="override the data/ root (default: $SIH26_DATA_DIR, else <repo>/data)")
     args = parser.parse_args(argv)
 
     cfg = load_site_config(args.site_id)
-    raw_dir = Path(args.data_dir) / cfg.site.id / "raw"
+    raw_dir = Path(args.data_dir or default_data_dir()) / cfg.site.id / "raw"
 
     products = [p.strip() for p in args.products.split(",") if p.strip()]
     known = set(OPENTOPOGRAPHY_PRODUCTS) | {"worldcover"}

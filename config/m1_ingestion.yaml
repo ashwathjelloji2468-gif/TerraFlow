@@ -1,0 +1,27 @@
+# Feature 2 ingestion settings (backend/m1_terrain/ingest.py). Engineering knobs, not site facts
+# (docs/decisions.md 2026-10-01 "Feature 2: data ingestion"): the values used for a run are
+# copied into data/<site_id>/raw/dem_comparison.json and raw/provenance.json.
+
+# DEM candidates the onboarding job downloads (D2), in preference order (D1). CartoDEM has no
+# download API: it is a candidate only when an operator has supplied it explicitly
+# (`python -m backend.m1_terrain.download <site> --cartodem-dir ...`), and then ranks last.
+dem_products: [copernicus_glo30, srtm_gl1]
+dem_preference: [copernicus_glo30, srtm_gl1, cartodem]
+# A candidate is acceptable when at most this fraction of far-field grid cells are voids.
+# If no candidate meets it, the lowest-void candidate is used and recorded threshold_met: false.
+max_dem_void_fraction: 0.05
+
+# ESA WorldCover: minimum fraction of the far-field bbox that must have a valid class (non-zero).
+min_landcover_valid_fraction: 0.95
+# ESA WorldCover 2021 v200 tile store (src_036); a local mirror directory also works.
+worldcover_base_url: https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map
+
+hydrobasins:
+  level: 12            # HydroBASINS level (src_041); 12 = finest
+  required: false      # D5: unavailable is recorded, never treated as fetched
+
+discharge:
+  enabled: true
+  required: false      # unavailable is recorded with its reason, never treated as fetched
+  start_date: "1984-01-01"   # GloFAS v4 record start (Open-Meteo Flood API, src_075)
+  timeout_s: 60

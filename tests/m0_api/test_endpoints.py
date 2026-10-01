@@ -207,8 +207,10 @@ def test_job_fails_clearly_when_real_onboarding_inputs_are_missing():
     body = client.get(f"{API}/jobs/{job_id}").json()
     assert_matches("job_status.schema.json", body)
     assert body["started_at"] is not None
+    # Feature 2: the terrain stage now ingests data itself. With network ingestion disabled
+    # (tests/m0_api/conftest.py) no raw data can be obtained, and the job says exactly that.
     assert body["error"]["error"]["code"] == "terrain_failed"
-    assert "raw inputs are missing" in body["error"]["error"]["message"]
+    assert "network ingestion is disabled (SIH26_INGEST_NETWORK=off)" in body["error"]["error"]["message"]
 
 
 # =============================================================================

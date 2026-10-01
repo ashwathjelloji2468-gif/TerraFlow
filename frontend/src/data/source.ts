@@ -16,7 +16,7 @@ import {collectGlobalUrls, collectResourceUrls, type OfflineBundle} from '../off
 import {buildSiteConfig, validateWizardSite, type WizardSite} from './site-config';
 
 export type {WizardSite, DamKind} from './site-config';
-export {siteIdFromName, validateWizardSite} from './site-config';
+export {siteIdFromName, validateWizardSite, missingTerrainFields} from './site-config';
 
 export type Awaiting = {status: 'awaiting'; reason: string};
 

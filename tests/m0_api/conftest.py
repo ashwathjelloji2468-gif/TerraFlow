@@ -22,6 +22,9 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("SIH26_FAKE_N_RUNS", "3")
     monkeypatch.setenv("SIH26_FAKE_RUN_STEPS", "3")
     monkeypatch.setenv("SIH26_FAKE_RUN_STEP_S", "0.05")
+    # Feature 2: no test may reach a real data service; every product that would need the network
+    # is recorded `unavailable` with this reason instead (backend/m1_terrain/ingest.py).
+    monkeypatch.setenv("SIH26_INGEST_NETWORK", "off")
     registry.init_db()
     return tmp_path / "data"
 

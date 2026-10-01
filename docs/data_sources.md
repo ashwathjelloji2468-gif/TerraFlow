@@ -316,3 +316,17 @@ Used for: `tests/data/breach_cases.csv`, built by `scripts/build_breach_cases.py
 (earthfill/rockfill cases only; incomplete rows dropped per equation), to check the M2
 equations (F16, F8, F95, MCLM, Z20) against the paper's median percentage errors. Test data
 only; not used at runtime.
+
+## src_075 — GloFAS v4 daily river discharge, via the Open-Meteo Flood API
+
+Global Flood Awareness System (GloFAS) v4, Copernicus Emergency Management Service: daily river
+discharge on a ~0.05° (~5 km) grid, reanalysis from 1984 and archived/seamless forecasts after,
+served by the Open-Meteo Flood API, https://flood-api.open-meteo.com/v1/flood (docs:
+https://open-meteo.com/en/docs/flood-api; no API key for non-commercial use). Units m³/s.
+**Modelled, not gauged.** Licence: GloFAS data CC BY 4.0 (Copernicus EMS) and Open-Meteo terms —
+**verify both licence pages before setting any derived value to `status: sourced`.**
+
+Used for: `backend/m1_terrain/discharge.py` (Feature 2) — `data/<site_id>/raw/discharge_glofas.csv`
+at the site's inflow point, as hydrological context for choosing `domains.far_field.inflow.base_flow`
+(never written into a site config automatically).
+
