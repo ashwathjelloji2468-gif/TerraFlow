@@ -37,27 +37,31 @@ def _load_config(site_id: str, data_dir: str | Path, config: dict | None = None)
     return load_site_config(site_id, sites_dir=root)
 
 
-def prepare_terrain(site_id: str, data_dir: str | Path, config: dict | None = None) -> dict:
-    """Run M1 from prepared raw contract inputs; refuse an ambiguous DEM choice."""
-    from backend.m1_terrain import download
+def prepare_terrain(site_id: str, data_dir: str | Path, config: dict | None = None,
+                    event=None) -> dict:
+    """Feature 2: ingest the site's raw data (DEM candidates, WorldCover, HydroBASINS, discharge)
+    into `raw/`, select the DEM deterministically (`raw/dem_comparison.json`), then run M1.
+
+    Raises `backend.m1_terrain.ingest.IngestionError` (carrying the job error code, e.g.
+    `terrain_inputs_incomplete`) on a blocking ingestion failure."""
+    from backend.m1_terrain import ingest
 
     cfg = _load_config(site_id, data_dir, config)
-    raw_dir = Path(data_dir) / site_id / "raw"
-    provenance_path = raw_dir / "provenance.json"
-    if not provenance_path.is_file():
-        raise FileNotFoundError(
-            f"M1 raw inputs are missing at {raw_dir}; prepare DEM and land-cover data first"
-        )
-    raw_provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-    candidates = [product for product in download.OPENTOPOGRAPHY_PRODUCTS
-                  if f"dem_{product}" in raw_provenance]
-    if len(candidates) != 1:
-        raise ValueError(
-            "M1 needs a selected DEM product; raw provenance must contain exactly one supported "
-            f"candidate for this onboarding run, found {candidates}"
-        )
-    product = candidates[0]
-    return build_terrain(cfg, product, raw_dir, Path(data_dir) / site_id / "terrain")
+    site_dir = Path(data_dir) / site_id
+    raw_dir = site_dir / "raw"
+    summary = ingest.ingest_site(cfg, raw_dir, event=event)
+    # M7's latest observed lake outline, when Earth Engine has produced one, overrides the
+    # WorldCover-derived lake extent (water.py's documented hook).
+    lake = site_dir / "gee" / "lake_latest.geojson"
+    water_polygon = None
+    if lake.is_file():
+        try:
+            if json.loads(lake.read_text(encoding="utf-8")).get("features"):
+                water_polygon = lake
+        except ValueError:
+            water_polygon = None
+    return build_terrain(cfg, summary["selected_dem"], raw_dir, site_dir / "terrain",
+                         water_polygon_path=water_polygon)
 
 
 def prepare_breach(site_id: str, data_dir: str | Path) -> Path:

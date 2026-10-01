@@ -157,7 +157,9 @@ contracts/                                # JSON Schemas + examples + styles.jso
 data/
   registry.sqlite                         # scenarios, runs, jobs, queries (§4.5)
   <site_id>/
-    raw/                                  # untouched downloads (M1, M6)
+    raw/                                  # untouched downloads (M1, M6) + provenance.json;
+                                           #   Feature 2 adds dem_comparison.json,
+                                           #   hydrobasins_catchment.geojson, discharge_glofas.csv (§4.1)
     terrain/                              # M1 outputs (§4.1)
     breach/                               # M2 outputs (§4.2)
       hydrographs/
@@ -485,6 +487,16 @@ Slider mapping: linear → `value = low + (p / 10) × (high − low)`; log → t
 |`nearfield.stl`|STL|near-field terrain in the SPH frame (§1.3)|M4|
 |`nearfield_frame.json`|JSON|`{crs_epsg, origin_x, origin_y, units: "m"}` — origin is the near-field grid's lower-left corner|M4, M0-6|
 |`provenance.json`|JSON|sources, versions, `vertical_datum`, processing steps, burn-in details|M6 report|
+
+**Raw ingestion (Feature 2, `backend/m1_terrain/ingest.py`, run inside the onboarding `terrain` stage; additive, 2026-10-01):** `raw/` files and their `raw/provenance.json` keys. Every key has `status: fetched | unavailable` (`unavailable` always carries `reason`; nothing unavailable is ever written as data).
+
+|File|`provenance.json` key|Content|
+|---|---|---|
+|`dem_copernicus_glo30.tif`, `dem_srtm_gl1.tif`, `dem_cartodem.tif`|`dem_<product>`|native CRS/resolution DEM for the far-field bbox + margin; entry has `request_bbox_deg, native_crs, native_resolution_m, vertical_datum, sha256, license, fetched_at`|
+|`landcover_esa_worldcover.tif`|`landcover_esa_worldcover`|ESA WorldCover 10 m classes; `tiles_used, tiles_skipped`|
+|`dem_comparison.json`|— (copied into `terrain/provenance.json` `dem_selection`)|`{site_id, grid, rule{preference, max_void_fraction}, candidates[{product, status, void_fraction, elevation_m, vertical_datum, difference_vs_selected_m}], selected, threshold_met}`|
+|`hydrobasins_catchment.geojson`|`hydrobasins_catchment`|EPSG:4326 FeatureCollection of the HydroBASINS sub-basins upstream of `dams[0].location` (`HYBAS_ID, NEXT_DOWN, SUB_AREA, UP_AREA` in km² as distributed); entry has `method, level, seed_lonlat, n_basins, upstream_area_m2`|
+|`discharge_glofas.csv`|`discharge_glofas`|`date,river_discharge_m3s` (UTC days, m³/s, modelled GloFAS v4, not gauged); entry has `request_point_lonlat, point_basis, returned_point_lonlat, period, n_missing, summary_m3s`|
 
 `config/manning_n.csv` (not `data/manning_table.csv` — `docs/decisions.md` 2026-09-25 "M1 Manning table path": the table is project-maintained, not a raw download, so it belongs in git-tracked `config/`): `worldcover_code,class,n_default,n_min,n_max,source,source_row,confidence,status,notes`.
 

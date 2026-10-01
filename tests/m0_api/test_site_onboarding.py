@@ -198,7 +198,9 @@ def test_saved_config_that_no_longer_validates_is_explicit(data_dir):
 
 
 # --- pipeline entry -----------------------------------------------------------------------
-def test_worker_runs_the_job_and_fails_explicitly_at_terrain_without_raw_inputs():
+def test_worker_runs_the_job_and_fails_explicitly_when_terrain_inputs_are_incomplete():
+    """The wizard-style minimal config leaves the near-field and grid fields empty: the terrain
+    stage stops before any download with every missing field listed (Feature 2)."""
     job_id = post(minimal_config()).json()["job_id"]
     worker = Worker()
     worker.acquire_lock()
@@ -209,10 +211,13 @@ def test_worker_runs_the_job_and_fails_explicitly_at_terrain_without_raw_inputs(
         worker.close()
     status = client.get(f"{API}/jobs/{job_id}").json()
     schemas.validate("job_status.schema.json", status)
-    assert status["error"]["error"]["code"] == "terrain_failed"
-    assert "raw inputs are missing" in status["error"]["error"]["message"]
+    error = status["error"]["error"]
+    assert error["code"] == "terrain_inputs_incomplete"
+    assert set(error["details"]["missing_fields"]) == {
+        "crs.utm_epsg", "domains.far_field.grid_resolution", "domains.near_field.bbox",
+        "domains.near_field.grid_resolution", "dams[0] (main_dam).breach_location"}
     site = client.get(f"{API}/sites/kosi_barrage").json()
-    assert site["status"] == "failed" and site["status_reason_key"] == "terrain_failed"
+    assert site["status"] == "failed" and site["status_reason_key"] == "terrain_inputs_incomplete"
 
 
 def test_recheck_is_scheduled_for_any_registered_site_with_a_library(data_dir):

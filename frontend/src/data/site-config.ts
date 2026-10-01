@@ -17,6 +17,12 @@ export type WizardSite = {
   damLat: number;
   damLon: number;
   bbox: [number, number, number, number] | null; // [min_lon, min_lat, max_lon, max_lat]
+  // Feature 2: terrain fields the onboarding job needs before it can download and process data.
+  farResolutionM?: number | null;
+  nearBbox?: [number, number, number, number] | null;
+  nearResolutionM?: number | null;
+  breachLat?: number | null;
+  breachLon?: number | null;
   breach: {
     waterVolumeM3: number | null;
     waterHeightM: number | null;
@@ -54,7 +60,30 @@ export function validateWizardSite(w: WizardSite): string[] {
     if (!(w0 < e0 && s0 < n0)) errors.push('Study-area bounds must have west < east and south < north.');
     else if (!(w.damLon >= w0 && w.damLon <= e0 && w.damLat >= s0 && w.damLat <= n0)) errors.push('The dam location must fall inside the study-area bounds.');
   }
+  const n = w.nearBbox;
+  if (w.farResolutionM != null && !(w.farResolutionM > 0)) errors.push('Far-field cell size must be greater than 0 m.');
+  if (w.nearResolutionM != null && !(w.nearResolutionM > 0)) errors.push('Near-field cell size must be greater than 0 m.');
+  if (w.farResolutionM && w.nearResolutionM && Math.abs(w.farResolutionM / w.nearResolutionM - Math.round(w.farResolutionM / w.nearResolutionM)) > 1e-9)
+    errors.push('The near-field cell size must divide the far-field cell size exactly.');
+  if (n && w.bbox) {
+    if (!(n[0] < n[2] && n[1] < n[3])) errors.push('Near-field bounds must have west < east and south < north.');
+    else if (!(n[0] >= w.bbox[0] && n[1] >= w.bbox[1] && n[2] <= w.bbox[2] && n[3] <= w.bbox[3])) errors.push('The near-field bounds must sit inside the study-area bounds.');
+  }
+  if (w.breachLat != null && w.breachLon != null && w.bbox) {
+    const [w0, s0, e0, n0] = w.bbox;
+    if (!(w.breachLon >= w0 && w.breachLon <= e0 && w.breachLat >= s0 && w.breachLat <= n0)) errors.push('The breach location must fall inside the study-area bounds.');
+  }
   return errors;
+}
+
+/** Terrain fields still empty -- the onboarding job stops with terrain_inputs_incomplete without them. */
+export function missingTerrainFields(w: WizardSite): string[] {
+  const missing: string[] = [];
+  if (!w.farResolutionM) missing.push('far-field cell size');
+  if (!w.nearBbox) missing.push('near-field bounds');
+  if (!w.nearResolutionM) missing.push('near-field cell size');
+  if (w.breachLat == null || w.breachLon == null) missing.push('breach location');
+  return missing;
 }
 
 type Sourced = {value: unknown; unit: string; source: string; status: 'placeholder'};
@@ -76,12 +105,12 @@ export function buildSiteConfig(w: WizardSite): Record<string, unknown> {
     domains: {
       far_field: {
         bbox: sv(w.bbox, 'deg', src),
-        grid_resolution: sv(null, 'm', src),
+        grid_resolution: sv(w.farResolutionM ?? null, 'm', src),
         inflow: {from: 'main_dam', location: sv(null, 'deg', src)},
       },
       near_field: {
-        bbox: sv(null, 'deg', src),
-        grid_resolution: sv(null, 'm', src),
+        bbox: sv(w.nearBbox ?? null, 'deg', src),
+        grid_resolution: sv(w.nearResolutionM ?? null, 'm', src),
         inflow: {from: 'far_field', location: sv(null, 'deg', src)},
       },
     },
@@ -92,7 +121,7 @@ export function buildSiteConfig(w: WizardSite): Record<string, unknown> {
       triggered_by: null,
       equations_applicable: w.damKind !== 'concrete_dam',
       location: sv(dam, 'deg', src),
-      breach_location: sv(null, 'deg', src),
+      breach_location: sv(w.breachLat != null && w.breachLon != null ? [w.breachLon, w.breachLat] : null, 'deg', src),
       breach_inputs: {
         water_volume_above_invert: sv(b.waterVolumeM3, 'm^3', src),
         water_height_above_invert: sv(b.waterHeightM, 'm', src),

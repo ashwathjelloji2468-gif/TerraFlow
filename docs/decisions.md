@@ -1254,3 +1254,33 @@ build a Delft3D near-field water surface from the paired near-field DEM and maxi
 7. `load_site_config(site_id)` without `sites_dir` now looks in the repo `sites/` first, then the
    onboarded config under the data dir, so M1/M6/M7 CLIs and API helpers find onboarded sites
    without changes. A bundled site can never be shadowed by a data copy.
+
+## 2026-10-01 — Feature 2: data ingestion (DECIDED with user)
+
+- **D1 DEM selection:** candidates are compared on the far-field canonical grid
+  (`raw/dem_comparison.json`). Rule (`config/m1_ingestion.yaml`): first of
+  `[copernicus_glo30, srtm_gl1, cartodem]` whose void fraction is <= `max_dem_void_fraction` (0.05,
+  an engineering setting); if none, the lowest-void candidate with `threshold_met: false`. CartoDEM
+  is a candidate only when an operator supplied it (`download.py --cartodem-dir`).
+- **D2:** the onboarding job's `terrain` stage downloads both OpenTopography DEMs and ESA WorldCover
+  itself (`backend/m1_terrain/ingest.py`), then runs M1. Stage list unchanged (contract §5.3).
+- **D3/D5 HydroBASINS:** local `$HYDROBASINS_DIR` shapefiles first, Earth Engine second; optional —
+  `status: unavailable` with the reason otherwise.
+- **D4:** `raw/` ingestion files documented additively in `docs/handoff_contract.md` §1.8/§4.1. No
+  JSON schema changed (raw/ provenance has no schema).
+- **D6 discharge:** GloFAS v4 daily discharge via the Open-Meteo Flood API (`src_075`, no key) at
+  `domains.far_field.inflow.location`, else `dams[0].location` -> `raw/discharge_glofas.csv`.
+  Modelled, not gauged; optional (`unavailable` with reason) and never copied into the site config.
+  No contract change was needed: it is a raw download plus a provenance entry.
+- **Errors:** missing M1 config fields -> job error `terrain_inputs_incomplete` (details list every
+  field); other ingestion failures -> `terrain_failed` with the actionable message (missing
+  `OPENTOPOGRAPHY_API_KEY`, WorldCover HTTP/connection failure, land-cover coverage below
+  `min_landcover_valid_fraction` 0.95, no usable DEM). A WorldCover tile that does not exist
+  (HTTP 404, open ocean) is skipped; any other tile failure is an error.
+- **Cache validation:** a cached raster is reused only if it opens, matches its provenance sha256
+  (when recorded) and its bounds cover the far-field bbox; otherwise it is re-downloaded, or the
+  candidate is unavailable when offline.
+- **`SIH26_INGEST_NETWORK=off`** disables all data-service requests (set for the test suite).
+- If `data/<site>/gee/lake_latest.geojson` exists, it is passed to M1 as the lake extent (the
+  existing `water.py` hook).
+

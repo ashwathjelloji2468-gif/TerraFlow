@@ -196,7 +196,9 @@ class Worker:
                         create_site_artifacts(row["site_id"], data_dir)
                         result = data_dir / row["site_id"] / "terrain/grid.json"
                     else:
-                        result = onboarding.prepare_terrain(row["site_id"], data_dir, payload["site_config"])
+                        result = onboarding.prepare_terrain(
+                            row["site_id"], data_dir, payload["site_config"],
+                            event=lambda msg, job_id=row["job_id"]: jobs.log_event(self.conn, job_id, msg))
                 elif stage == "breach" and payload.get("i1_synthetic"):
                     result = True
                 elif stage == "design" and payload.get("i1_synthetic"):
@@ -217,7 +219,11 @@ class Worker:
                     self._advance(row)
                     return True
             except Exception as exc:
-                jobs.fail(self.conn, row["job_id"], stage, f"{stage}_failed", str(exc))
+                # Modules may attach their own contract §2.7 code (e.g. Feature 2's
+                # `terrain_inputs_incomplete`); otherwise the generic `<stage>_failed`.
+                jobs.fail(self.conn, row["job_id"], stage,
+                          getattr(exc, "job_error_code", f"{stage}_failed"), str(exc),
+                          getattr(exc, "job_error_details", None))
                 return True
 
         time.sleep(_env_float("SIH26_FAKE_STAGE_S", 3.0))  # FAKE stage work

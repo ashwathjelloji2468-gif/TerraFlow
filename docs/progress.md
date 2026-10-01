@@ -2886,3 +2886,26 @@ also fail on the unmodified commit there); regenerate/compare on the team machin
 inputs exist (Feature 2). Teesta-specific run/scenario paths in `real_query.py`,
 `real_timeline.py`, `real_impact.py`, compare default scenario, and frontend demo buttons are
 untouched (Features 5, 6, 9, 11).
+
+## 2026-10-01 — Feature 2: dynamic DEM, hydrological and satellite data ingestion
+
+**Built:** `backend/m1_terrain/ingest.py` (readiness check, DEM candidates with cache validation,
+WorldCover with coverage check, DEM comparison + deterministic selection, HydroBASINS, discharge),
+`hydrobasins.py` (local shapefile -> Earth Engine fallback, upstream walk reusing M7's pure helper),
+`discharge.py` (GloFAS v4 via Open-Meteo Flood API), `config/m1_ingestion.yaml`. The onboarding
+`terrain` stage now ingests then builds terrain (`onboarding.prepare_terrain`), logging each product
+to the job; the worker records module error codes (`terrain_inputs_incomplete`). `download.py`:
+WorldCover distinguishes absent tiles from network failures; download/pipeline CLIs honour
+`SIH26_DATA_DIR`. `pipeline.py` copies the DEM selection into `terrain/provenance.json`. Frontend
+wizard collects far/near-field cell sizes, near-field bounds and the breach location, and warns
+which terrain fields are still empty. Decisions D1-D6 in `docs/decisions.md`; `src_075` added.
+
+**Checks:** full backend `pytest -q` green; new `tests/m1_terrain/test_ingest.py`,
+`tests/m0_api/test_ingestion_job.py`; frontend `tsc`, `check:shell`, `test:offline`,
+`test:site-config` pass. All external services faked in tests (`SIH26_INGEST_NETWORK=off` in
+`tests/m0_api/conftest.py`).
+
+**Not yet done:** no live run against OpenTopography/WorldCover/Open-Meteo from this sandbox — run one
+on the team machine with a real key. Gauge/CSV discharge upload would need a new API endpoint
+(contract change) and is not part of this change.
+

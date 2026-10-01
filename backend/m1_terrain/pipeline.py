@@ -30,7 +30,7 @@ import pandas as pd
 from shapely.geometry import LineString, Point
 
 from backend.shared.grid import CanonicalGrid, build_site_grids, write_grid_raster
-from backend.shared.site_config import SiteConfig, load_site_config
+from backend.shared.site_config import SiteConfig, default_data_dir, load_site_config
 
 from . import burn, centreline, dem as dem_mod, domain as domain_mod, hydro, roughness, stl, water
 from .settings import TerrainSettings
@@ -39,7 +39,6 @@ log = logging.getLogger("m1.pipeline")
 
 CONTRACT_VERSION = "0.3.0"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = REPO_ROOT / "data"
 MANNING_TABLE_PATH = REPO_ROOT / "config" / "manning_n.csv"
 
 DEM_PRODUCTS = ["srtm_gl1", "copernicus_glo30", "cartodem"]
@@ -223,6 +222,9 @@ def build_terrain(
         "has_placeholders": has_placeholders,
         "placeholder_fields": placeholder_fields + manning_placeholders,
         "dem": {"product": dem_product, **dem_entry},
+        # Feature 2: the DEM comparison + deterministic selection, when ingest.py made it.
+        "dem_selection": (json.loads((raw_dir / "dem_comparison.json").read_text(encoding="utf-8"))
+                          if (raw_dir / "dem_comparison.json").is_file() else None),
         "landcover": landcover_entry,
         "vertical_datum": dem_entry.get("vertical_datum"),
         "landcover_legend": dem_mod.landcover_legend(),
@@ -241,11 +243,11 @@ def build_terrain(
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("site_id", help="site id (a sites/<site_id>.yaml must exist)")
+    parser.add_argument("site_id", help="a registered site id (bundled sites/<id>.yaml or onboarded data/<id>/config/<id>.yaml)")
     parser.add_argument("--dem", required=True, choices=DEM_PRODUCTS, help="which downloaded DEM product to use")
     parser.add_argument("--domain-max-hand-m", type=float, default=None, help="override TerrainSettings.domain_max_hand_m")
     parser.add_argument("--water-polygon", default=None, help="optional vector file overriding the WorldCover-derived lake/reservoir extent")
-    parser.add_argument("--data-dir", default=str(DATA_DIR), help="override the data/ root")
+    parser.add_argument("--data-dir", default=None, help="override the data/ root (default: $SIH26_DATA_DIR, else <repo>/data)")
     args = parser.parse_args(argv)
 
     cfg = load_site_config(args.site_id)
@@ -254,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
         settings_kwargs["domain_max_hand_m"] = args.domain_max_hand_m
     settings = TerrainSettings(**settings_kwargs)
 
-    data_dir = Path(args.data_dir)
+    data_dir = Path(args.data_dir or default_data_dir())
     raw_dir = data_dir / cfg.site.id / "raw"
     out_dir = data_dir / cfg.site.id / "terrain"
     build_terrain(cfg, args.dem, raw_dir, out_dir, settings, water_polygon_path=args.water_polygon)

@@ -22,6 +22,7 @@ try {
   const wizard = {
     name: 'Kosi Barrage study reach', citation: '', damName: 'Kosi Barrage', damKind: 'embankment_dam',
     damLat: 26.5, damLon: 87.0, bbox: [86.9, 26.4, 87.2, 26.8],
+    farResolutionM: 90, nearResolutionM: 30, nearBbox: [86.95, 26.45, 87.05, 26.55], breachLat: 26.49, breachLon: 87.0,
     breach: {waterVolumeM3: 5e7, waterHeightM: 12, breachHeightM: null, damHeightM: null,
              embankmentWidthM: null, damType: 'HD', failureMode: null, erodibility: null},
   };
@@ -58,6 +59,19 @@ try {
     assert.equal(cfg.domains.far_field.inflow.from, cfg.dams[0].id);
     const all = JSON.stringify(cfg);
     assert.ok(!all.includes('"status":"sourced"'), 'the wizard never marks a value as sourced');
+  });
+
+  test('Feature 2 terrain fields are sent and checked', () => {
+    const cfg = m.buildSiteConfig(wizard);
+    assert.equal(cfg.domains.far_field.grid_resolution.value, 90);
+    assert.equal(cfg.domains.near_field.grid_resolution.value, 30);
+    assert.deepEqual(cfg.domains.near_field.bbox.value, [86.95, 26.45, 87.05, 26.55]);
+    assert.deepEqual(cfg.dams[0].breach_location.value, [87.0, 26.49]);
+    assert.deepEqual(m.missingTerrainFields(wizard), []);
+    assert.deepEqual(m.missingTerrainFields({...wizard, nearBbox: null, breachLat: null}), ['near-field bounds', 'breach location']);
+    assert.ok(m.validateWizardSite({...wizard, nearResolutionM: 40}).some(e => /divide/.test(e)));
+    assert.ok(m.validateWizardSite({...wizard, nearBbox: [86.0, 26.45, 87.05, 26.55]}).some(e => /inside the study-area/.test(e)));
+    assert.ok(m.validateWizardSite({...wizard, breachLon: 95}).some(e => /breach location/.test(e)));
   });
 
   test('a citation replaces the operator-entry source', () => {
