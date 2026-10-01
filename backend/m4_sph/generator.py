@@ -201,6 +201,72 @@ def _box_corners_within_bounds(
     return True
 
 
+class InOutOutsideDomain(ValueError):
+    """An inlet/outlet zone point (plane corner or particle-layer corner) lies outside the
+    domain DualSPHysics will actually build -- it would abort at "Initialising InOut"."""
+
+
+def generated_domain(grid_near: CanonicalGrid, dem_near: np.ndarray, dp_m: float, boundary_layers: int) -> dict:
+    """The particle domain GenCase actually generates, in the SPH frame (metres).
+
+    DualSPHysics's default simulation domain is the bounding box of the generated particles, not
+    the `pointmin/pointmax` drawing box: `nearfield.stl` spans near-field *cell centres*
+    (`m1_terrain.stl.build_triangles`), i.e. half a cell inside the grid edge, and boundary layers
+    are drawn `boundary_layers * dp` below the terrain. Particles then snap to the dp lattice."""
+    valid = dem_near[dem_near != FLOAT_NODATA]
+    half = grid_near.cell_size_m / 2
+    return {"x": (half, grid_near.width * grid_near.cell_size_m - half),
+            "y": (half, grid_near.height * grid_near.cell_size_m - half),
+            "z": (float(valid.min()) - (boundary_layers - 1) * dp_m if valid.size else 0.0,
+                  float(valid.max()) if valid.size else 0.0)}
+
+
+def zone_envelope(point_xyz, size_xyz, rotate_deg: float, rotate_center_xy, layers: int, dp_m: float) -> np.ndarray:
+    """`(8, 3)` corners of an inout zone *including* its particle layers, which DualSPHysics
+    builds `layers * dp` behind the zone plane (opposite `direction`, i.e. +y before rotation for
+    this module's `(0, -1, 0)` zones), rotated with the same clockwise `rotateaxis` convention
+    as `_box_corners_within_bounds`."""
+    px, py, pz = point_xyz
+    sx, _, sz = size_xyz
+    cx, cy = rotate_center_xy if rotate_center_xy is not None else (px + sx / 2, py)
+    a = math.radians(rotate_deg)
+    cos_a, sin_a = math.cos(a), math.sin(a)
+    corners = []
+    for x in (px, px + sx):
+        for y in (py, py + layers * dp_m):
+            dx, dy = x - cx, y - cy
+            for z in (pz, pz + sz):
+                corners.append((cx + dx * cos_a + dy * sin_a, cy - dx * sin_a + dy * cos_a, z))
+    return np.asarray(corners)
+
+
+def envelope_violations(corners: np.ndarray, domain: dict, margin_m: float) -> list[str]:
+    """Human-readable violations: which side, which coordinate, by how much."""
+    out = []
+    for axis, i in (("x", 0), ("y", 1), ("z", 2)):
+        lo, hi = domain[axis][0] + margin_m, domain[axis][1] - margin_m
+        if corners[:, i].min() < lo:
+            out.append(f"{axis}-min side: {corners[:, i].min():.3f} < {lo:.3f}")
+        if corners[:, i].max() > hi:
+            out.append(f"{axis}-max side: {corners[:, i].max():.3f} > {hi:.3f}")
+    return out
+
+
+def validate_inout_within_domain(zones: list[tuple[str, InOutZone]], dp_m: float, domain: dict,
+                                 margin_m: float) -> None:
+    """Raise `InOutOutsideDomain` naming the zone, side and coordinate if any point of any zone
+    (plane or layers) is outside `domain` shrunk by `margin_m`. Never moves a zone."""
+    problems = []
+    for name, z in zones:
+        corners = zone_envelope(z.point_xyz, z.size_xyz, z.rotate_deg, z.rotate_center_xy, z.layers, dp_m)
+        problems += [f"{name} zone {v}" for v in envelope_violations(corners, domain, margin_m)]
+    if problems:
+        raise InOutOutsideDomain(
+            "inout zone outside the generated particle domain "
+            f"(x {domain['x'][0]:.3f}..{domain['x'][1]:.3f}, y {domain['y'][0]:.3f}..{domain['y'][1]:.3f}, "
+            f"z {domain['z'][0]:.3f}..{domain['z'][1]:.3f}, margin {margin_m:.3f} m): " + "; ".join(problems))
+
+
 def outlet_geometry(
     inflow_lon_lat: tuple[float, float],
     grid_near: CanonicalGrid,
@@ -210,6 +276,10 @@ def outlet_geometry(
     width_m: float,
     height_m: float,
     margin_m: float,
+    *,
+    dp_m: float | None = None,
+    layers: int = 0,
+    domain: dict | None = None,
 ) -> OutletGeometry:
     """Place a downstream outlet cross-section `margin_m` inside the near-field grid's downstream
     edge from the inflow point, walking the centreline in its increasing-arc-length ("downstream")
@@ -274,10 +344,20 @@ def outlet_geometry(
             candidate_rotate_deg = inlet_rotation_for_tangent(-tx, -ty)  # points upstream
             candidate_x_local = outlet_pt.x - frame["origin_x"]
             candidate_y_local = outlet_pt.y - frame["origin_y"]
-            if _box_corners_within_bounds(
-                candidate_x_local, candidate_y_local, width_m, candidate_rotate_deg,
-                domain_x_m, domain_y_m,
-            ):
+            if domain is not None and dp_m is not None:
+                # The whole zone -- plane *and* its `layers * dp` particle layers -- must fit the
+                # particle domain GenCase actually generates (`generated_domain`), with one dp of
+                # margin; checking only the plane ends against the grid edge let a layer corner
+                # land outside it (DualSPHysics 5.4.355: "Point for inlet conditions ... is
+                # outside the domain" on the synthetic case's outlet).
+                envelope = zone_envelope((candidate_x_local - width_m / 2, candidate_y_local, candidate_bed_z),
+                                         (width_m, 0.0, height_m), candidate_rotate_deg,
+                                         (candidate_x_local, candidate_y_local), layers, dp_m)
+                fits = not envelope_violations(envelope, domain, dp_m)
+            else:
+                fits = _box_corners_within_bounds(candidate_x_local, candidate_y_local, width_m,
+                                                  candidate_rotate_deg, domain_x_m, domain_y_m)
+            if fits:
                 bed_z, x_local, y_local, rotate_deg = (
                     candidate_bed_z, candidate_x_local, candidate_y_local, candidate_rotate_deg,
                 )
@@ -423,21 +503,6 @@ def build_nearfield_case(
     z_min = float(dem_valid.min()) if dem_valid.size else 0.0
     z_max = max(float(dem_valid.max()) if dem_valid.size else 0.0, inlet.zsurf_m)
 
-    outlet = outlet_geometry(
-        tuple(inflow_location), grid_near, dem_near, frame, centreline,
-        settings.inlet_width_m, settings.inlet_height_m, settings.outlet_margin_m,
-    )
-    outlet_zone = InOutZone(
-        point_xyz=outlet.point_xyz, size_xyz=outlet.size_xyz, direction_xyz=outlet.direction_xyz,
-        layers=settings.inlet_layers, refilling=2, inputtreatment=1,
-        rotate_deg=outlet.rotate_deg,
-        rotate_center_xy=(outlet.point_xyz[0] + outlet.size_xyz[0] / 2, outlet.point_xyz[1]),
-        velocity_mode=2, imposerhop_mode=1, zsurf_mode=2, zsurf_m=outlet.zsurf0_m,
-    )
-
-    probes = load_probes(terrain_dir)
-    kept_probes, skipped_probes = probes_in_nearfield(probes, frame, grid_near, dem_near)
-
     dp_setting = settings.dp_m
     left, bottom, right, top = grid_near.bounds
     domain_x_m, domain_y_m = right - left, top - bottom
@@ -455,6 +520,25 @@ def build_nearfield_case(
     else:
         dp_m = float(dp_setting)
         vram_info = check_vram(dp_m, domain_x_m, domain_y_m, fluid_depth_m, settings)
+
+    # The domain DualSPHysics will actually build; every inout point must lie inside it.
+    domain = generated_domain(grid_near, dem_near, dp_m, settings.boundary_layers)
+    outlet = outlet_geometry(
+        tuple(inflow_location), grid_near, dem_near, frame, centreline,
+        settings.inlet_width_m, settings.inlet_height_m, settings.outlet_margin_m,
+        dp_m=dp_m, layers=settings.inlet_layers, domain=domain,
+    )
+    outlet_zone = InOutZone(
+        point_xyz=outlet.point_xyz, size_xyz=outlet.size_xyz, direction_xyz=outlet.direction_xyz,
+        layers=settings.inlet_layers, refilling=2, inputtreatment=1,
+        rotate_deg=outlet.rotate_deg,
+        rotate_center_xy=(outlet.point_xyz[0] + outlet.size_xyz[0] / 2, outlet.point_xyz[1]),
+        velocity_mode=2, imposerhop_mode=1, zsurf_mode=2, zsurf_m=outlet.zsurf0_m,
+    )
+
+    probes = load_probes(terrain_dir)
+    kept_probes, skipped_probes = probes_in_nearfield(probes, frame, grid_near, dem_near)
+
 
     draw_commands = [
         E("setmkfluid", {"mk": 0}),
@@ -520,6 +604,10 @@ def build_nearfield_case(
         vel_gauges=vel_gauges,
     )
 
+    # Fail before GenCase, naming the zone/side/coordinate, rather than inside the solver.
+    # One dp of margin covers the particles' snap to the dp lattice; no zone is moved here.
+    validate_inout_within_domain([("inlet", inout_zone), ("outlet", outlet_zone)], dp_m, domain, margin_m=dp_m)
+
     caveats = ["clear_water", "fixed_area_inlet"]
     case_meta = {
         "contract_version": CONTRACT_VERSION,
@@ -536,6 +624,8 @@ def build_nearfield_case(
             "bed_z_m": outlet.bed_z_m, "zsurf0_m": outlet.zsurf0_m,
             "rotate_deg": outlet.rotate_deg,
         },
+        "generated_domain_m": {k: list(v) for k, v in domain.items()},
+        "inout_domain_margin_m": dp_m,
         "probes_used": [p.probe.poi_id for p in kept_probes],
         "probes_skipped": skipped_probes,
         "has_placeholders": cfg.has_placeholders,
