@@ -25,13 +25,12 @@ from backend.m2_breach.hydrograph import hydrograph as m2_hydrograph
 from backend.m4_sph import vram_estimator
 from backend.shared.grid import FLOAT_NODATA, CanonicalGrid, lonlat_to_rowcol
 from backend.shared.probes import Probe, load_probes
-from backend.shared.site_config import SiteConfig, load_site_config
+from backend.shared.site_config import SiteConfig, default_data_dir, load_site_config
 
 from .case_xml import CaseSpec, E, InOutZone, SwlGauge, TimeValue, VelocityGauge, write_case_xml
 from .settings import SphSettings, load_sph_settings
 
 CONTRACT_VERSION = "0.3.0"
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 
 class InflowUnavailable(Exception):
@@ -373,7 +372,7 @@ def build_nearfield_case(
     `sites_dir` overrides where `<site_id>.yaml` is loaded from (default `sites/`), for tests.
     """
     settings = settings or load_sph_settings()
-    data_dir = Path(data_dir) if data_dir is not None else DATA_DIR
+    data_dir = Path(data_dir) if data_dir is not None else default_data_dir()  # $SIH26_DATA_DIR, else <repo>/data
     cfg = load_site_config(site_id, sites_dir=sites_dir)
     terrain_dir = Path(terrain_dir) if terrain_dir is not None else data_dir / site_id / "terrain"
 
@@ -676,7 +675,7 @@ def main(argv: list[str] | None = None) -> None:
     params = json.loads(args.params_json)
     overrides = {"dp_m": args.dp_m} if args.dp_m is not None else {}
     settings = load_sph_settings(**overrides)
-    data_dir = Path(args.data_dir) if args.data_dir else DATA_DIR
+    data_dir = Path(args.data_dir) if args.data_dir else default_data_dir()
 
     spec, case_meta = build_nearfield_case(args.site, args.scenario_id, params, settings, data_dir)
     run_dir = Path(args.run_dir) if args.run_dir else data_dir / args.site / "runs" / f"{args.scenario_id}__sph"

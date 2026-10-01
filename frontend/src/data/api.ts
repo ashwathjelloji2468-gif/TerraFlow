@@ -76,9 +76,10 @@ export type ImpactResponse = {
   caveats: Array<{id: string; severity: 'info' | 'warning' | 'critical'; text_key: string}>;
   provenance: Record<string, unknown>;
 };
+export type PairStatus = 'BLOCKED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 export type CompareResponse = {
   site_id: string; scenario_id: string;
-  sph_vs_delft3d: {available: boolean; domain: string; time_window_s: number; metrics: {iou?: number; f1_0_3?: number; depth_rmse_wet_m?: number; velocity_mae_ms?: number}; probes: Array<{poi_id: string; arrival_delft3d_s: number; arrival_sph_s: number; diff_s: number}>; layers: FloodQueryResponse['layers']; run_ids: string[]};
+  sph_vs_delft3d: {available: boolean; domain: string; time_window_s: number; metrics: {iou?: number; f1?: number; f1_0_3?: number; depth_rmse_wet_m?: number; velocity_mae_ms?: number}; probes: Array<{poi_id: string; arrival_delft3d_s: number; arrival_sph_s: number; diff_s: number}>; layers: FloodQueryResponse['layers']; run_ids: string[]; status?: {solver_status: PairStatus; postprocess_status: PairStatus; comparison_status: PairStatus; validation_status: PairStatus; comparison_reason?: string | null; validation_reason?: string}};
   emulator_vs_physics: {available: boolean; held_out_run_id: string | null; metrics: {iou?: number; depth_rmse_wet_m?: number; arrival_mae_s?: number}; layers: FloodQueryResponse['layers']};
   gp_vs_linear: {iou_median_gp?: number; iou_median_linear?: number; arrival_mae_s_gp?: number; arrival_mae_s_linear?: number}; when_to_use_key: string;
   caveats: Array<{id: string; severity: 'info' | 'warning' | 'critical'; text_key: string}>;

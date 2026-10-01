@@ -458,6 +458,13 @@ def get_compare(site_id: SiteIdPath, scenario_id: str | None = Query(default=Non
         model, held_out_run_id, sidecar_path = found
         response = api_compare.build_response(site_id, scenario_id, model, held_out_run_id, sidecar_path)
         return _validated_json("compare.schema.json", response)
+    if scenario_id:
+        # Generic <scenario>__delft3d / <scenario>__sph pair (Feature 6) with no sidecar yet:
+        # report the separate solver/postprocess/comparison/validation statuses, no metrics.
+        from backend.m4_sph.compare import status_only_response
+        pair = status_only_response(registry.data_dir(), site_id, scenario_id)
+        if pair is not None:
+            return _validated_json("compare.schema.json", pair)
     if (registry.data_dir() / site_id / "demo_ready.json").is_file():
         run_meta_path = registry.data_dir() / site_id / "runs" / f"{site_id}_demo_s001__synthetic" / "run_meta.json"
         if not run_meta_path.is_file():
@@ -868,8 +875,8 @@ def get_file(path: str) -> Response:
         sidecar = registry.data_dir() / m["site_id"] / "compare" / m["scenario_id"] / "compare.json"
         if not sidecar.is_file():
             raise HTTPException(status_code=404, detail=mocks.error("file_not_found", f"No paired comparison at '{path}'.", {"path": path}))
-        from backend.m4_sph.compare_mvp import render_mvp_depth_diff
-        return Response(content=render_mvp_depth_diff(registry.data_dir(), m["scenario_id"]), media_type="image/png")
+        from backend.m4_sph.compare import render_depth_diff
+        return Response(content=render_depth_diff(registry.data_dir(), m["site_id"], m["scenario_id"]), media_type="image/png")
 
     m = SCENE_ASSET_PATH_RE.match(path)
     if m is not None:

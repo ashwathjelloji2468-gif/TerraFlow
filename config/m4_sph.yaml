@@ -54,3 +54,15 @@ velocity_levels: 3         # number of z-levels sampled per wet cell to depth-av
 surface_interval_s: 300.0  # cadence for surfaces/t<seconds>.glb water-surface snapshots
 postprocess_row_chunk: 200 # near-field grid rows per MeasureTool invocation (CLAUDE.md rule 13:
                            # never hold a full-grid points file/CSV in memory at once)
+
+# Particle-retention QA gate (backend/m4_sph/solver_log.py `particle_retention`, Feature 6). A run
+# whose solver log reports excluded particles above this fraction of all particles that existed --
+# or the solver's own ">100% of current fluid particles were excluded" warning -- is FAILED for
+# retention, whatever its exit code. A project QA threshold, not a physical constant.
+max_excluded_particle_fraction: 0.05
+
+# Feature 5 -> M4 inflow (backend/m3_dflowfm/section_discharge.py): when a site's near-field inflow is
+# `far_field`, the SPH inlet discharge is integrated across a section this wide, normal to the M1
+# centreline at `domains.near_field.inflow.location`, from the scenario's real `<scenario>__delft3d`
+# map. 300 m is the width the Teesta MVP comparison used (backend/m4_sph/teesta_mvp.py).
+routed_section_width_m: 300.0

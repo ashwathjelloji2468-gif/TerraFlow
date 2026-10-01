@@ -193,6 +193,38 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
     return job_id, results
 
 
+def _routed_discharge_from_delft3d(cfg, scenario_id: str, data_dir: Path, sph_run_id: str,
+                                   section_width_m: float) -> Path:
+    """Feature 5 -> M4: the SPH inlet discharge from the scenario's own postprocessed
+    `<scenario_id>__delft3d` run, across a section normal to the centreline at the near-field
+    inflow point. Raises FileNotFoundError/ValueError (-> refused) when that run is unavailable."""
+    import geopandas as gpd
+    from pyproj import Transformer
+
+    from backend.m3_dflowfm.section_discharge import normal_section, write_section_discharge
+
+    site_id = cfg.site.id
+    m3_run_id = f"{scenario_id}__delft3d"
+    m3_dir = data_dir / site_id / "runs" / m3_run_id
+    meta_path = m3_dir / "run_meta.json"
+    if not meta_path.is_file():
+        raise FileNotFoundError(f"{m3_run_id} has no run_meta.json (not postprocessed)")
+    if json.loads(meta_path.read_text()).get("status") != "postprocessed":
+        raise ValueError(f"{m3_run_id} is not postprocessed")
+    location = cfg.domains.near_field.inflow.location.value
+    if location is None:
+        raise ValueError("domains.near_field.inflow.location is null")
+    epsg = int(cfg.crs.utm_epsg.value)
+    x, y = Transformer.from_crs(4326, epsg, always_xy=True).transform(*location)
+    centreline = gpd.read_file(data_dir / site_id / "terrain" / "centreline.gpkg").to_crs(epsg=epsg)
+    line = max(centreline.geometry, key=lambda g: g.length)
+    section = normal_section(line, x, y, section_width_m)
+    _, sidecar = write_section_discharge(
+        m3_dir, data_dir / site_id / "runs" / sph_run_id / "routed", section, site_id=site_id,
+        scenario_id=scenario_id, source_run_id=m3_run_id, crs_epsg=epsg, section_id=f"{scenario_id}__nearfield_inflow")
+    return sidecar
+
+
 def run_sph_campaign(
     site_id: str,
     conn: sqlite3.Connection,
@@ -238,13 +270,21 @@ def run_sph_campaign(
             jobs.log_event(conn, job_id, f"refused {run_id}: {reason}")
             continue
 
+        routed_kwargs, routed_reason = {}, None
+        if cfg.domains.near_field.inflow.from_ == "far_field":
+            try:
+                routed_kwargs["routed_discharge_path"] = _routed_discharge_from_delft3d(
+                    cfg, scenario_id, data_dir, run_id, sph_settings.routed_section_width_m)
+            except (FileNotFoundError, ValueError) as e:
+                routed_reason = f"no routed Delft3D inflow: {e}"
         try:
             spec, case_meta = generator.build_nearfield_case(
-                site_id, scenario_id, params, data_dir=data_dir, sites_dir=sites_dir,
+                site_id, scenario_id, params, data_dir=data_dir, sites_dir=sites_dir, **routed_kwargs,
             )
         except (generator.OverVramBudget, generator.InflowUnavailable) as e:
-            results.append(CampaignCaseResult(scenario_id, run_id, "refused", str(e)))
-            jobs.log_event(conn, job_id, f"refused {run_id}: {e}")
+            reason = f"{e} ({routed_reason})" if routed_reason else str(e)
+            results.append(CampaignCaseResult(scenario_id, run_id, "refused", reason))
+            jobs.log_event(conn, job_id, f"refused {run_id}: {reason}")
             continue
 
         run_directory = data_dir / site_id / "runs" / run_id

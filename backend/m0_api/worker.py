@@ -492,7 +492,8 @@ class Worker:
                     from backend.m4_sph.settings import load_sph_settings
                     sph_settings = load_sph_settings(**payload.get("sph_settings", {}))
                     run_meta = postprocess_run(run_root, terrain_dir, run_root / "raw" / "data",
-                                               settings=sph_settings, binaries_dir=payload.get("binaries_dir"))
+                                               settings=sph_settings, binaries_dir=payload.get("binaries_dir"),
+                                               execution=execution)
                     case_meta = json.loads((run_root / "case" / "case_meta.json").read_text())
                     for key in ("run_id", "label", "domain_status", "output_classification",
                                 "source_m3_run_id", "routed_discharge_csv", "routed_discharge_manifest",

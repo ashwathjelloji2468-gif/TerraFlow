@@ -33,7 +33,7 @@ def test_campaign_worker_runs_sph_and_registers_artifact_paths(tmp_path, monkeyp
     (case_dir / "synth__s001__sph_Def.xml").write_text("<case/>", encoding="utf-8")
     (case_dir / "case_meta.json").write_text(json.dumps({"scenario_id": scenario_id, "dp_m": 0.02}), encoding="utf-8")
 
-    def controlled_postprocess(run_root, terrain_dir, dirdata, settings=None, binaries_dir=None):
+    def controlled_postprocess(run_root, terrain_dir, dirdata, settings=None, binaries_dir=None, execution=None):
         meta = {"contract_version": "0.3.0", "run_id": run_id, "scenario_id": scenario_id, "model": "sph",
                 "status": "postprocessed", "solver_version": "controlled-test", "resolution_m": 1.0,
                 "dp_m": 0.02, "particle_count": 1, "peak_vram_mb": None, "sim_duration_s": 1.0,
@@ -126,7 +126,7 @@ def test_registered_campaign_job_executes_stock_sph_and_registers_outputs(tmp_pa
     (case_dir / source.name).write_bytes(source.read_bytes())
     (case_dir / "case_meta.json").write_text(json.dumps({"scenario_id": scenario_id, "dp_m": 0.02}), encoding="utf-8")
 
-    def controlled_postprocess(run_root, terrain_dir, dirdata, settings=None, binaries_dir=None):
+    def controlled_postprocess(run_root, terrain_dir, dirdata, settings=None, binaries_dir=None, execution=None):
         meta = {"contract_version": "0.3.0", "run_id": run_id, "scenario_id": scenario_id, "model": "sph",
                 "status": "postprocessed", "solver_version": "DualSPHysics 5.4.355", "resolution_m": None,
                 "dp_m": 0.02, "particle_count": 17446, "peak_vram_mb": None, "sim_duration_s": 2.0,
