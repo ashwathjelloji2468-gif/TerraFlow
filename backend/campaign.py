@@ -91,7 +91,8 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
         settings = scenario_design.load_scenario_design_settings()
         if demo:
             settings = replace(settings, n=4, n_holdout=0)
-        design = scenario_design.build_scenario_design(cfg, cfg.domains.far_field.inflow.from_, settings)
+        design = scenario_design.build_scenario_design(cfg, cfg.domains.far_field.inflow.from_, settings,
+                                                       data_dir=data_dir)
     if demo:
         # M5's emulator and LOOCV both require at least four training runs.
         design["scenarios"] = design["scenarios"][:4]
