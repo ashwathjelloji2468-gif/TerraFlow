@@ -94,3 +94,18 @@ def test_downstream_wet_faces_and_wet_at_pois_read_netcdf(tmp_path):
     assert w["per_poi"]["a"] == {"max_depth_m": 0.0, "wet": False}  # wet only during spin-up
     assert w["per_poi"]["b"]["wet"] is True
     assert w["all_wet"] is False
+
+
+def test_outlet_wet_reads_faces_touching_the_outlet(tmp_path):
+    # Two 100 m squares; the outlet polyline lies on the right edge of face 1.
+    xr.Dataset({"mesh2d_node_x": ("n", [0.0, 100.0, 200.0, 0.0, 100.0, 200.0]),
+                "mesh2d_node_y": ("n", [0.0, 0.0, 0.0, 100.0, 100.0, 100.0]),
+                "mesh2d_face_nodes": (("f", "k"), [[0, 1, 4, 3], [1, 2, 5, 4]]),
+                "mesh2d_waterdepth": (("time", "f"), [[0.0, 0.0], [0.3, 0.0]])},
+               coords={"time": [0.0, 60.0]}).to_netcdf(tmp_path / "m_map.nc")
+    pli = tmp_path / "out.pli"
+    pli.write_text("out\n2 2\n200.0 0.0\n200.0 100.0\n")
+    dry = smoke.outlet_wet(tmp_path / "m_map.nc", pli)
+    assert dry["outlet_faces"] == [1] and dry["wet"] is False
+    pli.write_text("out\n2 2\n0.0 0.0\n0.0 100.0\n")
+    assert smoke.outlet_wet(tmp_path / "m_map.nc", pli)["wet"] is True

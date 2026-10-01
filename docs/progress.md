@@ -2966,3 +2966,26 @@ reports `solver_success`, `postprocess_success` and `wet_at_pois` separately, pl
 **Not done (by design):** no real run in this sandbox (no kernel); Teesta base flow still null; no
 study-reach/outlet config; no multi-scenario campaign. Found, not fixed: `postprocess._solver_wall_seconds`
 regex never matches GNU time's "(h:mm:ss or m:ss)" line, so `run_meta.wall_time_s` falls back to `.dia` stamps.
+
+## 2026-10-01 — Feature 5: smoke-case stall diagnosed (mesh/terrain edge sills)
+
+**Real-kernel evidence (team WSL run):** solver, provenance, forcing, source volume and mass balance all
+fine; the source-connected wet region stopped ~1.7 km below the source; outlet dry.
+
+**Cause (A+B, not solver, not post-processing):** the shared synthetic valley is a sharp V (zero-width
+thalweg). With `BedLevType = 3` a flow link is bounded by its edge's higher node; the 30 m triangular
+mesh put only 47 of 2,850 nodes within 15 m of the thalweg, so down-valley edges have one node up the
+wall. Rebuilt net, frontier face 762 (bed 2162.554625 m, WSE 2166.278832 m): edge 762→782 nodes
+2150.554 / 2167.968 m (sill 1.69 m above WSE, though face 782 is lower); 762→743 and 762→744 sills
+2175.930 m. Best source→outlet path needs 7.7 m of ponding (`hydraulic_path.py`).
+
+**Correction (synthetic smoke case only):** `synthetic_valley` takes an optional `floor_half_width_m`
+(default 0 = unchanged); the smoke test uses a 240 m flat floor (`synth_m3_channel_terrain_dir`), whose
+mesh needs ≤ 0.5 m ponding to reach the outlet. Smoke run extended to 2 h after t0 (outlet 11.4 km away).
+The harness now reports `mesh_hydraulic_path` and `outlet` (faces touching the outlet polyline) and the
+real test asserts the outlet is wet; the downstream assertion is unchanged. Production generator,
+BedLevType and Teesta inputs unchanged. **Not yet re-run on the real kernel.**
+
+**Open:** the generic generator's interior triangles are coarser than the configured spacing (median edge
+40 m, max 189 m at 30 m), the likely reason real-site cases (Teesta 77k) also leave POIs dry. Teesta
+base flow still null.

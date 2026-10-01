@@ -166,6 +166,33 @@ def downstream_wet_faces(map_path: Path, source_xy: tuple[float, float],
             "max_downstream_depth_m": float(max_depth[downstream].max()) if downstream.any() else None}
 
 
+def outlet_wet(map_path: Path, outlet_pli: Path) -> dict:
+    """Faces touching the configured outlet polyline and whether any had max depth > 0 m."""
+    import xarray as xr
+    from shapely.geometry import LineString, Polygon
+
+    rows = []
+    for line in outlet_pli.read_text(errors="replace").splitlines()[2:]:
+        parts = line.split()
+        if len(parts) >= 2:
+            rows.append((float(parts[0]), float(parts[1])))
+    line = LineString(rows).buffer(1.0)
+    with xr.open_dataset(map_path) as ds:
+        raw = np.asarray(ds["mesh2d_face_nodes"].values, dtype=float)
+        start = int(ds["mesh2d_face_nodes"].attrs.get("start_index", 0))
+        nx, ny = (np.asarray(ds[v].values, dtype=float) for v in ("mesh2d_node_x", "mesh2d_node_y"))
+        faces = [i for i, row in enumerate(raw)
+                 if Polygon([(nx[int(v) - start], ny[int(v) - start]) for v in row if np.isfinite(v)]).intersects(line)]
+        depth = ds["mesh2d_waterdepth"]
+        peak = np.full(len(faces), -np.inf)
+        for t0 in range(0, depth.sizes["time"], 32):
+            block = np.asarray(depth.isel(time=slice(t0, t0 + 32)).values, dtype=float)[:, faces]
+            peak = np.fmax(peak, np.nanmax(block, axis=0))
+    return {"rule": "faces intersecting the outlet polyline (1 m buffer), max depth > 0 m",
+            "outlet_faces": [int(i) for i in faces], "max_depth_m": [float(v) for v in peak],
+            "wet": bool(len(faces)) and bool(np.any(peak > 0.0))}
+
+
 def wet_at_pois(his_path: Path, spinup_s: float, threshold_m: float) -> dict:
     """Per-POI maximum depth after spin-up and whether it exceeds `threshold_m`."""
     import xarray as xr
@@ -201,6 +228,10 @@ def run_smoke_case(case_dir: str | Path, run_dir: str | Path, *, terrain_dir: st
                     "solver_success": False, "postprocess_success": False, "wet_at_pois": None,
                     "notes": ["solver_success is M3 rule 1 only; it does not mean the flood result is "
                               "physically correct"]}
+    if source_xy := _source_xy(case_dir):
+        from .hydraulic_path import source_outlet_bottleneck
+        report["mesh_hydraulic_path"] = source_outlet_bottleneck(
+            case_dir / "inputs" / "domain_net.nc", source_xy, case_dir / "inputs" / "downstream_outlet.pli")
     launched_at = time.time()
     proc = launcher.launch_case(case_dir, run_dir, model=model, kernel=kernel)
     try:
@@ -226,6 +257,7 @@ def run_smoke_case(case_dir: str | Path, run_dir: str | Path, *, terrain_dir: st
         source, outlet = _source_xy(case_dir), _outlet_xy(case_dir)
         if source and outlet:
             report["downstream"] = downstream_wet_faces(output / f"{stem}_map.nc", source, outlet)
+        report["outlet"] = outlet_wet(output / f"{stem}_map.nc", case_dir / "inputs" / "downstream_outlet.pli")
         try:
             meta = postprocess_dflowfm(case_dir, run_dir, grid_path=terrain_dir / "grid.json",
                                        domain_mask_path=terrain_dir / "domain_mask.tif", run_id=run_id,

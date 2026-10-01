@@ -12,7 +12,9 @@ Silicon, where the Linux x86_64 build cannot run. On the team's Linux/WSL machin
         pytest -rs -s tests/m3_dflowfm/test_real_solver.py
 
 The case's base flow (12 m^3/s) is the synthetic fixture's own placeholder (`synth_m3_sites_dir`),
-not a site value; the case is a numerical smoke test, not a physical result.
+not a site value; the case is a numerical smoke test, not a physical result. The terrain is the
+flat-floored synthetic valley (`synth_m3_channel_terrain_dir`): the sharp-V valley has no mesh path
+from source to outlet without ponding behind edge sills (see `hydraulic_path.py`).
 """
 from __future__ import annotations
 
@@ -41,11 +43,16 @@ def _skip_reason() -> str | None:
     return None
 
 
+# Simulated end (s since model start, spin-up included): the outlet is ~11.4 km down-valley, so the
+# run continues 2 h after t0. A test duration, not a physical value.
+SMOKE_STOP_S = SPINUP_S + 7200.0
+MAX_PATH_PONDING_M = 1.0  # same bound as tests/m3_dflowfm/test_hydraulic_path.py
+
 _REASON = _skip_reason()
 pytestmark = pytest.mark.skipif(_REASON is not None, reason=_REASON or "")
 
 
-def test_real_kernel_runs_tiny_synthetic_case(synth_terrain_dir, synth_m3_sites_dir, synth_hydrograph_params,
+def test_real_kernel_runs_tiny_synthetic_case(synth_m3_channel_terrain_dir, synth_m3_sites_dir, synth_hydrograph_params,
                                               tmp_path, monkeypatch, record_property):
     for key in [k for k in os.environ if k.startswith("SIH26_FAKE_")]:
         monkeypatch.delenv(key)
@@ -53,13 +60,14 @@ def test_real_kernel_runs_tiny_synthetic_case(synth_terrain_dir, synth_m3_sites_
     assert launcher.launch_case.__module__ == "backend.m3_dflowfm.launcher"
     assert smoke.launcher.launch_case is launcher.launch_case
 
+    terrain = synth_m3_channel_terrain_dir
     kernel = smoke.resolve_kernel()
     case, meta = build_case("synth", "synth__smoke", synth_hydrograph_params,
-                            data_dir=synth_terrain_dir.parent.parent, sites_dir=synth_m3_sites_dir,
-                            case_dir=tmp_path / "case", stop_s=3600)
-    assert meta["mesh"]["face_count"] < 10_000  # genuinely tiny
+                            data_dir=terrain.parent.parent, sites_dir=synth_m3_sites_dir,
+                            case_dir=tmp_path / "case", stop_s=SMOKE_STOP_S)
+    assert meta["mesh"]["face_count"] < 20_000  # small: about half the 33k-face pilot
 
-    report = smoke.run_smoke_case(case, tmp_path / "run", terrain_dir=synth_terrain_dir, kernel=kernel,
+    report = smoke.run_smoke_case(case, tmp_path / "run", terrain_dir=terrain, kernel=kernel,
                                   spinup_s=SPINUP_S, run_id="synth__smoke__dflowfm",
                                   scenario_id="synth__smoke", timeout_s=1800)
     print(json.dumps(report, indent=2, default=str))
@@ -67,6 +75,10 @@ def test_real_kernel_runs_tiny_synthetic_case(synth_terrain_dir, synth_m3_sites_
     record_property("harness_wall_time_s", report["harness_wall_time_s"])
     record_property("kernel", str(kernel))
     record_property("face_count", meta["mesh"]["face_count"])
+
+    # The mesh itself offers a source-to-outlet path (kernel-free check, recorded in the report).
+    path = report["mesh_hydraulic_path"]
+    assert path["connected"] and path["bottleneck_required_ponding_m"] <= MAX_PATH_PONDING_M, path
 
     output = case / "output"
     # Solver verdict (M3 rule 1).
@@ -86,6 +98,9 @@ def test_real_kernel_runs_tiny_synthetic_case(synth_terrain_dir, synth_m3_sites_
 
     # Water actually reached the downstream half of the domain.
     assert report["downstream"]["wet_downstream_faces"] >= 1, report["downstream"]
+
+    # The flood reaches the configured downstream outlet.
+    assert report["outlet"]["wet"] is True, report["outlet"]
 
     # Separate verdicts, all reported.
     assert report["postprocess_success"] is True, report.get("postprocess_error")
