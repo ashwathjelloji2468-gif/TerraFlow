@@ -22,9 +22,12 @@ def test_fully_sourced_hd_moraine_dam(make_config):
     assert entry["equations_applicable"] is True
     params = entry["parameters"]
 
-    # Qp remains blocked; Bave and Tf are computable with the fixed XZ9 h_r.
-    assert params["peak_discharge_m3s"]["low"] is None
-    assert params["peak_discharge_m3s"]["status"] == "blocked"
+    # Feature 3 (F3-D1): XZ9 peak discharge is enabled, so an HD dam's Qp pair is computable.
+    qp = params["peak_discharge_m3s"]
+    assert qp["low"] is not None and qp["high"] is not None and qp["low"] <= qp["high"]
+    assert "status" not in qp
+    assert qp["selected_pair"] == ["DFM_updated", "DFM_2024"]
+    assert qp["methods"]["XZ9"]["value"] > 0
     assert params["breach_width_m"]["low"] is not None
     assert params["breach_width_m"]["high"] is not None
     assert "status" not in params["breach_width_m"]
@@ -35,7 +38,7 @@ def test_fully_sourced_hd_moraine_dam(make_config):
     assert tf["unit"] == "s"
     assert tf["selected_pair"] == ["DFM_updated", "F8"]
 
-    # F16 and Z20 (HD) are individually computable even though DFM/pair is blocked.
+    # F16 and Z20 (HD) are individually computable too.
     assert params["peak_discharge_m3s"]["methods"]["F16"]["value"] is not None
     assert params["peak_discharge_m3s"]["methods"]["Z20"]["value"] is not None
     assert params["breach_width_m"]["methods"]["XZ9"]["value"] > 0

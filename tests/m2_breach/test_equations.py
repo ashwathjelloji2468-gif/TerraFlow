@@ -68,10 +68,18 @@ def test_xz9_reference_height_is_model_constant():
     assert XZ9_REFERENCE_HEIGHT_M == 15.0
 
 
-def test_xz9_peak_discharge_remains_blocked():
-    with pytest.raises(BlockedEquationError):
-        peak_discharge_xz9(V_w=1e6, h_w=10, h_b=5, h_d=15, dam_type="HD",
-                            failure_mode="O", erodibility="M")
+def test_xz9_peak_discharge_is_enabled_and_unverified():
+    """Feature 3 (F3-D1): computed from docs/Equations.md §1.2, still verified=False. Hand check:
+    0.175*sqrt(9.81)*1e6^(5/6)*(15/15)^0.199*(100/10)^-1.274*exp(-0.649-0.705-0.375)."""
+    import math
+
+    r = peak_discharge_xz9(V_w=1e6, h_w=10, h_b=5, h_d=15, dam_type="HD",
+                           failure_mode="O", erodibility="M")
+    expected = 0.175 * math.sqrt(9.81) * 1e5 * 1.0 * 10 ** -1.274 * math.exp(-1.729)
+    assert r.value == pytest.approx(expected, rel=1e-12)
+    assert r.value == pytest.approx(517.5, rel=1e-3)
+    assert r.verified is False and r.unit == "m3s"
+    assert r.source_tag.startswith("SECONDARY")
 
 
 def test_xz9_breach_width_calculates_without_site_reference_height():

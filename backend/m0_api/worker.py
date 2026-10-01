@@ -206,7 +206,9 @@ class Worker:
                 elif stage == "training" and payload.get("i1_synthetic"):
                     result = True
                 elif stage == "breach":
-                    result = onboarding.prepare_breach(row["site_id"], data_dir)
+                    result = onboarding.prepare_breach(
+                        row["site_id"], data_dir,
+                        event=lambda msg, job_id=row["job_id"]: jobs.log_event(self.conn, job_id, msg))
                 elif stage == "design":
                     result = onboarding.prepare_design(row["site_id"], data_dir, demo=bool(payload.get("demo_mode")))
                 elif stage == "training":

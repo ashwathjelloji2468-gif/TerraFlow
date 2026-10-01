@@ -79,6 +79,15 @@ try {
     assert.equal(cfg.dams[0].location.source, 'CWC dam register 2024');
   });
 
+  const src = await server.ssrLoadModule('/src/data/source.ts');
+  test('breach marker uses the first dam of any site, not a hard-coded id', () => {
+    const dams = [{dam_id: 'kosi__lower', order: 2}, {dam_id: 'kosi__upper', order: 1}];
+    assert.equal(src.firstDam(dams).dam_id, 'kosi__upper');
+    assert.equal(src.firstDam([]), undefined);
+    assert.equal(src.firstBreachDam([{dam_id: 'upper'}, {dam_id: 'lower'}]).dam_id, 'upper');
+    assert.equal(src.firstBreachDam(undefined), undefined);
+  });
+
   if (process.env.SITE_CONFIG_OUT) writeFileSync(process.env.SITE_CONFIG_OUT, JSON.stringify(m.buildSiteConfig(wizard), null, 2));
 } finally {
   await server.close();

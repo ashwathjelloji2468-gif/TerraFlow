@@ -244,3 +244,15 @@ export async function saveQueryForOffline(bundle: OfflineBundle, siteName: strin
 export async function loadSavedOfflineQuery(queryId: string): Promise<FloodQueryResponse> {
   return api.flood(queryId);
 }
+
+/** Feature 3: the most-upstream dam (contract §5.1 `order` 1; site configs list dams upstream
+ * first), used for the breach marker/tooltip -- never a hard-coded site or dam id. */
+export function firstDam<T extends {order: number}>(dams: T[] | undefined): T | undefined {
+  return dams?.length ? [...dams].sort((a, b) => a.order - b.order)[0] : undefined;
+}
+
+/** `breach_params.json` keeps `dams` in config order (upstream first, contract §4.2). */
+export function firstBreachDam<T>(dams: T[] | undefined): T | undefined {
+  return dams?.[0];
+}
+

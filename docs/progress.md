@@ -2909,3 +2909,22 @@ which terrain fields are still empty. Decisions D1-D6 in `docs/decisions.md`; `s
 on the team machine with a real key. Gauge/CSV discharge upload would need a new API endpoint
 (contract change) and is not part of this change.
 
+## 2026-10-01 — Feature 3: dynamic breach modelling and hydrograph generation
+
+**Built:** XZ9 peak discharge (`xz9.py`, F3-D1) and the XZ9 width label fix; status-based per-dam
+placeholder warnings and `SIH26_DATA_DIR` defaults (`breach_params.py`, `hydrograph.py`);
+`backend/m2_breach/reference.py` — the breach stage (`run_breach_stage`): parameters for every dam,
+reference low/high hydrographs from M2's range bounds (weir when sourced, else triangular; blocked
+with a reason otherwise), Feature 2 evidence in provenance, one job event per dam and case.
+`onboarding.prepare_breach` and the worker use it. Frontend breach marker/tooltip use the first dam
+of any site (`source.firstDam` / `firstBreachDam`) instead of `south_lhonak`. Decisions F3-D1..D6.
+
+**Teesta (placeholder inputs):** south_lhonak Q_p range is now computable (4289-7123 m³/s) and its
+reference low/high triangular hydrographs are written; teesta_iii (FD) keeps a blocked Q_p range
+(Z20, F3-D2), and as a triggered cascade dam it gets no reference hydrograph (needs the routed
+stage-1 inflow).
+
+**Checks:** full backend `pytest -q` green; frontend `tsc`, `check:shell`, `test:offline`,
+`test:site-config` pass. Updated (deliberately) the blocked-XZ9 assertions in
+`test_equations.py`, `test_breach_params.py`, `test_hydrograph.py`.
+

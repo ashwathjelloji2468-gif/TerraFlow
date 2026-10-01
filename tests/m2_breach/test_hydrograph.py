@@ -180,13 +180,26 @@ def test_hydrograph_for_dam_explicit_triangular_request(make_config):
     assert hg.method == "triangular"
 
 
-def test_hydrograph_for_dam_qp_range_blocked_for_synthetic_dam(make_config):
-    """dams[0] in synth.yaml is HD/moraine: Qp's DFM pair needs unavailable XZ9 peak discharge
-    (backend/m2_breach/xz9.py) — so peak_within_m2_range must be None, not a tuned True/False."""
+def test_hydrograph_for_dam_qp_range_checked_for_hd_dam(make_config):
+    """dams[0] in synth.yaml is HD/moraine. Feature 3 (F3-D1) enabled XZ9 peak discharge, so the
+    Qp pair is computable and the hydrograph's peak is checked against it (True/False, no caveat)."""
     cfg = make_config(volume_elevation=SYNTH_VOLUME_ELEVATION_RELATION,
                        breach_hydrograph=SYNTH_BREACH_HYDROGRAPH)
     params = {"water_volume_m3": 1_000_000.0, "breach_width_m": 40.0, "failure_time_s": 1200.0}
     hg = hydrograph_for_dam(cfg.dams[0], params)
+    assert isinstance(hg.peak_within_m2_range, bool)
+    assert not any(c["id"] == "m2_qp_range_blocked" for c in hg.caveats)
+
+
+def test_hydrograph_for_dam_qp_range_blocked_for_fd_dam(make_config):
+    """An FD dam's Qp pair stays blocked (Z20 has no FD branch, F3-D2): peak_within_m2_range is
+    None with caveat m2_qp_range_blocked, not a tuned True/False."""
+    cfg = make_config(volume_elevation=SYNTH_VOLUME_ELEVATION_RELATION,
+                       breach_hydrograph=SYNTH_BREACH_HYDROGRAPH)
+    dam = cfg.dams[0].model_copy(update={"breach_inputs": cfg.dams[0].breach_inputs.model_copy(
+        update={"dam_type": cfg.dams[0].breach_inputs.dam_type.model_copy(update={"value": "FD"})})})
+    params = {"water_volume_m3": 1_000_000.0, "breach_width_m": 40.0, "failure_time_s": 1200.0}
+    hg = hydrograph_for_dam(dam, params)
     assert hg.peak_within_m2_range is None
     assert any(c["id"] == "m2_qp_range_blocked" for c in hg.caveats)
 
