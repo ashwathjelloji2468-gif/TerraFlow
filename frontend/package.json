@@ -12,6 +12,7 @@
     "test:visual": "npm --prefix visual run test",
     "test:offline": "node scripts/test-resource-list.mjs",
     "test:site-config": "node scripts/test-site-config.mjs",
+    "test:scenarios": "node scripts/test-scenarios.mjs",
     "lint": "eslint . --ignore-pattern dist",
     "check:shell": "node scripts/check-shell.mjs"
   },

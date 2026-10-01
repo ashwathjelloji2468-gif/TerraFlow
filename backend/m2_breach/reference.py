@@ -2,7 +2,7 @@
 Feature 2 evidence, plus per-dam reference low/high hydrographs (docs/decisions.md 2026-10-01,
 F3-D3/D5/D6).
 
-Reference hydrographs (`breach/hydrographs/<site_id>_n_m2_low__<dam>.csv` / `_n_m2_high__`) bracket
+Reference hydrographs (`breach/hydrographs/<site_id>__n_m2_low__<dam>.csv` / `__n_m2_high__`) bracket
 M2's own range bounds -- they are not designed scenarios (Feature 4) and do not vary the water
 volume:
 
@@ -45,8 +45,8 @@ Event = Callable[[str], None]
 
 
 def reference_scenario_id(site_id: str, case: str) -> str:
-    """`<site_id>_n_m2_<case>` -- the `n_<name>` (named extra) id form, docs/decisions.md."""
-    return f"{site_id}_n_m2_{case}"
+    """`<site_id>__n_m2_<case>` -- the code-wide named-extra id form (F4-D2)."""
+    return f"{site_id}__n_m2_{case}"
 
 
 # --- evidence ------------------------------------------------------------------------------------

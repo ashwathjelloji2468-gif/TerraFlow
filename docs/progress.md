@@ -2928,3 +2928,19 @@ stage-1 inflow).
 `test:site-config` pass. Updated (deliberately) the blocked-XZ9 assertions in
 `test_equations.py`, `test_breach_params.py`, `test_hydrograph.py`.
 
+## 2026-10-01 — Feature 4: dynamic scenario generation and what-if
+
+**Built:** `scenario_design.py` reads `breach_params.json`, samples Q_p when the hydrograph is triangular,
+samples volume only over `emulator_inputs`, hydrograph-validates every scenario, records full provenance,
+fingerprints, archives history and never reuses IDs. `whatif.py` + `GET /sites/{id}/design` and
+`POST /sites/{id}/whatif` (real M2 + hydrograph, optional save as `__n_<slug>`). `SiteConfig.emulator_inputs`.
+Design-stage job event. Library screen shows the real design and runs/saves real what-ifs.
+
+**Teesta (placeholder inputs):** 30 design + 5 held-out scenarios for south_lhonak, sampled B_ave, T_f, Q_p,
+triangular hydrographs, none rejected. teesta_iii (FD) what-if is blocked (Z20) as expected.
+
+**Checks:** full `pytest -q` green; frontend `tsc`, `check:shell`, `test:offline`, `test:site-config`,
+new `test:scenarios`.
+
+**For Feature 5:** `build_case` still needs `domains.far_field.inflow.base_flow` (null for Teesta).
+

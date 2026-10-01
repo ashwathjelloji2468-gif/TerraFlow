@@ -72,7 +72,7 @@ def prepare_breach(site_id: str, data_dir: str | Path, event=None) -> Path:
     return run_breach_stage(cfg, data_dir=Path(data_dir), event=event)
 
 
-def prepare_design(site_id: str, data_dir: str | Path, *, demo: bool = False) -> Path:
+def prepare_design(site_id: str, data_dir: str | Path, *, demo: bool = False, event=None) -> Path:
     """Run M5's scenario design over M2's computed ranges."""
     cfg = _load_config(site_id, data_dir)
     target_dam = cfg.domains.far_field.inflow.from_
@@ -82,6 +82,15 @@ def prepare_design(site_id: str, data_dir: str | Path, *, demo: bool = False) ->
             n=4, n_holdout=0, seed=settings.seed,
             input_widen_fraction=settings.input_widen_fraction, method=settings.method,
         )
-    return scenario_design.write_scenario_design(
+    path = scenario_design.write_scenario_design(
         cfg, target_dam, data_dir=Path(data_dir), settings=settings,
     )
+    if event is not None:
+        import json as _json
+
+        design = _json.loads(path.read_text(encoding="utf-8"))
+        prov = design.get("provenance", {})
+        event(f"design {target_dam}: {len(design['scenarios'])} scenarios + {len(design['extra'])} extra, "
+              f"sampled {', '.join(prov.get('sampled_inputs', []))}; hydrograph {prov.get('hydrograph_method')}; "
+              f"{len(prov.get('rejected', []))} rejected; fingerprint {str(prov.get('fingerprint'))[:12]}")
+    return path

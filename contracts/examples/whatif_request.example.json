@@ -1,0 +1,12 @@
+{
+  "dam_id": "south_lhonak",
+  "inputs": {
+    "water_volume_m3": 40000000.0
+  },
+  "scenario": {
+    "breach_width_m": 150.0
+  },
+  "case": "high",
+  "dt_s": 10.0,
+  "save_as": "smaller_lake"
+}

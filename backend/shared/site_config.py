@@ -436,6 +436,57 @@ def _duplicates(ids: list[str]) -> list[str]:
     return sorted({i for i in ids if ids.count(i) > 1})
 
 
+class EmulatorInputRange(_Strict):
+    """Contract §3.3 `emulator_inputs[].range`. Like every config fact it carries a source and a
+    status; a range that is not sourced stays `placeholder` and flags results (CLAUDE.md rule 3)."""
+
+    low: Annotated[float, Field(gt=0)] | None
+    high: Annotated[float, Field(gt=0)] | None
+    unit: str
+    basis: str | None = None
+    source: str
+    status: Status = "placeholder"
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.low is not None and self.high is not None and not self.low < self.high:
+            raise ValueError(f"emulator_inputs range must have low < high, got [{self.low}, {self.high}]")
+        if self.status == "sourced" and (self.low is None or self.high is None or not self.source.strip()):
+            raise ValueError("a sourced emulator_inputs range needs both bounds and a non-empty source")
+        return self
+
+
+class EmulatorInputSlider(_Strict):
+    positions: list[int]
+    mapping: Literal["linear", "log"]
+
+
+#: Contract §3.3 reserved input names, with the unit each range must use.
+EMULATOR_INPUT_UNITS = {"water_volume_m3": "m^3", "initial_water_level_m": "m", "breach_width_m": "m",
+                        "failure_time_s": "s", "manning_multiplier": "-"}
+
+
+class EmulatorInput(_Strict):
+    """Contract §3.3 `emulator_inputs` entry. Feature 4 uses only `water_volume_m3` (F4-D5:
+    volume is sampled only over an explicit range here); the other names are accepted and kept
+    for later features."""
+
+    name: Literal["water_volume_m3", "initial_water_level_m", "breach_width_m", "failure_time_s", "manning_multiplier"]
+    dam_id: Annotated[str, Field(pattern=SLUG_PATTERN)] | None = None
+    range: EmulatorInputRange
+    slider: EmulatorInputSlider | None = None
+    default: float | None = None
+
+    @model_validator(mode="after")
+    def _unit(self):
+        want = EMULATOR_INPUT_UNITS[self.name]
+        if self.range.unit != want:
+            raise ValueError(f"emulator_inputs '{self.name}' range unit must be '{want}', got '{self.range.unit}'")
+        if self.name != "manning_multiplier" and self.dam_id is None:
+            raise ValueError(f"emulator_inputs '{self.name}' needs a dam_id")
+        return self
+
+
 class SiteConfig(_Strict):
     schema_version: Literal[1]
     site: Site
@@ -446,10 +497,17 @@ class SiteConfig(_Strict):
     points_of_interest: list[PointOfInterest] = []
     events: list[Event] = []
     simulation: Simulation = Field(default_factory=Simulation)
+    emulator_inputs: list[EmulatorInput] = []  # contract §3.3 (Feature 4)
 
     @model_validator(mode="after")
     def _cross_checks(self):
         dam_ids = [d.id for d in self.dams]
+        for item in self.emulator_inputs:
+            if item.dam_id is not None and item.dam_id not in dam_ids:
+                raise ValueError(f"emulator_inputs '{item.name}' dam_id '{item.dam_id}' is not a dam in this site")
+        seen = [(i.name, i.dam_id) for i in self.emulator_inputs]
+        if dups := _duplicates([f"{n}:{d}" for n, d in seen]):
+            raise ValueError(f"duplicate emulator_inputs entries: {', '.join(dups)}")
         for label, ids in (("dam", dam_ids),
                            ("point_of_interest", [p.id for p in self.points_of_interest]),
                            ("event", [e.id for e in self.events])):

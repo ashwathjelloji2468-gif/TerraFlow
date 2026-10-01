@@ -37,6 +37,8 @@ EXAMPLE_TO_SCHEMA = {
     "run_meta.example.json": "run_meta.schema.json",
     "scenario_design.example.json": "scenario_design.schema.json",
     "routed_discharge.example.json": "routed_discharge.schema.json",
+    "whatif_request.example.json": "whatif_request.schema.json",
+    "whatif_response.example.json": "whatif_response.schema.json",
 }
 
 

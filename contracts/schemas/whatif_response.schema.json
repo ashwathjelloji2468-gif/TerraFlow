@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whatif_response.schema.json",
+  "title": "POST /sites/{site_id}/whatif response (Feature 4)",
+  "description": "A real M2 recomputation (breach_params: one dam entry, same shape as breach_params.json dams[]) and, unless blocked, a real M2 hydrograph. No flood map (Feature 8).",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "site_id",
+    "dam_id",
+    "case",
+    "status",
+    "input_overrides",
+    "breach_params",
+    "hydrograph_method",
+    "scenario_params",
+    "param_basis",
+    "blocked_reasons",
+    "hydrograph",
+    "has_placeholders",
+    "caveats",
+    "saved_scenario_id"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string"
+    },
+    "site_id": {
+      "type": "string"
+    },
+    "dam_id": {
+      "type": "string"
+    },
+    "case": {
+      "enum": [
+        "low",
+        "high"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "blocked"
+      ]
+    },
+    "input_overrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ]
+      }
+    },
+    "breach_params": {
+      "$ref": "breach_params.schema.json#/$defs/DamBreachParams"
+    },
+    "hydrograph_method": {
+      "enum": [
+        "breach_growth_weir",
+        "triangular"
+      ]
+    },
+    "scenario_params": {
+      "type": "object",
+      "properties": {
+        "water_volume_m3": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "breach_width_m": {
+          "type": "number"
+        },
+        "failure_time_s": {
+          "type": "number"
+        },
+        "peak_discharge_m3s": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "water_volume_m3"
+      ],
+      "additionalProperties": false
+    },
+    "param_basis": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "blocked_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hydrograph": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "method",
+            "dt_s",
+            "t_s",
+            "q_m3s",
+            "peak_q_m3s",
+            "time_to_peak_s",
+            "volume_m3",
+            "mass_balance_error_pct",
+            "peak_within_m2_range",
+            "caveats",
+            "has_placeholders"
+          ],
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "dt_s": {
+              "type": "number"
+            },
+            "t_s": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "q_m3s": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "peak_q_m3s": {
+              "type": "number"
+            },
+            "time_to_peak_s": {
+              "type": "number"
+            },
+            "volume_m3": {
+              "type": "number"
+            },
+            "mass_balance_error_pct": {
+              "type": "number"
+            },
+            "peak_within_m2_range": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "caveats": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/Caveat"
+              }
+            },
+            "has_placeholders": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "has_placeholders": {
+      "type": "boolean"
+    },
+    "caveats": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "saved_scenario_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "contract_version": "0.3.0",
+  "site_id": "teesta",
+  "dam_id": "south_lhonak",
+  "case": "high",
+  "input_overrides": {
+    "water_volume_m3": {
+      "from": 50000000.0,
+      "to": 40000000.0,
+      "from_status": "placeholder"
+    }
+  },
+  "breach_params": {
+    "dam_id": "south_lhonak",
+    "equations_applicable": true,
+    "inputs_used": {
+      "Vw_m3": 40000000.0,
+      "hw_m": 20.0,
+      "hb_m": 20.0,
+      "hd_m": 30.0,
+      "Wave_m": 300.0,
+      "dam_type_code": "HD",
+      "failure_mode": "O",
+      "erodibility": "H"
+    },
+    "parameters": {
+      "peak_discharge_m3s": {
+        "methods": {
+          "F16": {
+            "value": 3841.679787779767,
+            "in_valid_range": null
+          },
+          "Z20": {
+            "value": 4730.763956832429,
+            "in_valid_range": null
+          },
+          "XZ9": {
+            "value": 9373.967912439259,
+            "in_valid_range": null
+          },
+          "H14": {
+            "value": 3864.3963696194464,
+            "in_valid_range": null
+          },
+          "DFM_updated": {
+            "value": 6466.128070824841,
+            "in_valid_range": null
+          },
+          "DFM_2024": {
+            "value": 3916.4048457229865,
+            "in_valid_range": null
+          }
+        },
+        "low": 3916.4048457229865,
+        "high": 6466.128070824841,
+        "unit": "m3s",
+        "interval": "method_range",
+        "selected_pair": [
+          "DFM_updated",
+          "DFM_2024"
+        ]
+      },
+      "breach_width_m": {
+        "methods": {
+          "F95": {
+            "value": 120.7754484683795,
+            "in_valid_range": null
+          },
+          "F8": {
+            "value": 107.15378432316376,
+            "in_valid_range": null
+          },
+          "XZ9": {
+            "value": 136.11005751931003,
+            "in_valid_range": null
+          },
+          "DFM_updated": {
+            "value": 158.24439307878535,
+            "in_valid_range": null
+          }
+        },
+        "low": 136.11005751931003,
+        "high": 158.24439307878535,
+        "unit": "m",
+        "interval": "method_range",
+        "selected_pair": [
+          "DFM_updated",
+          "XZ9"
+        ]
+      },
+      "failure_time_s": {
+        "methods": {
+          "F95": {
+            "value": 6596.309379548105,
+            "in_valid_range": null
+          },
+          "F8": {
+            "value": 6380.909345655364,
+            "in_valid_range": null
+          },
+          "MCLM": {
+            "value": 5307.988988182337,
+            "in_valid_range": null
+          },
+          "DFM_updated": {
+            "value": 6391.057743671116,
+            "in_valid_range": null
+          }
+        },
+        "low": 6380.909345655364,
+        "high": 6391.057743671116,
+        "unit": "s",
+        "interval": "method_range",
+        "selected_pair": [
+          "DFM_updated",
+          "F8"
+        ]
+      }
+    },
+    "warnings": [
+      "placeholder-valued input(s) used: V_w, h_w, h_b, h_d, W_ave, dam_type, failure_mode, erodibility",
+      "failure_time_uncertain",
+      "clear_water",
+      "moraine_extrapolation",
+      "placeholder_data"
+    ]
+  },
+  "has_placeholders": true,
+  "caveats": [
+    "failure_time_uncertain",
+    "clear_water",
+    "moraine_extrapolation",
+    "placeholder_data"
+  ],
+  "hydrograph_method": "triangular",
+  "scenario_params": {
+    "water_volume_m3": 40000000.0,
+    "breach_width_m": 150.0,
+    "failure_time_s": 6380.909345655364,
+    "peak_discharge_m3s": 6466.128070824841
+  },
+  "param_basis": {
+    "water_volume_m3": "override",
+    "breach_width_m": "override",
+    "failure_time_s": "M2 range low (high case)",
+    "peak_discharge_m3s": "M2 range high (high case)"
+  },
+  "status": "ok",
+  "blocked_reasons": [],
+  "hydrograph": {
+    "method": "triangular",
+    "dt_s": 600.0,
+    "t_s": [
+      0.0,
+      600.0,
+      1200.0,
+      1800.0,
+      2400.0,
+      3000.0,
+      3600.0,
+      4200.0,
+      4800.0,
+      5400.0,
+      6000.0,
+      6380.909345655364,
+      6600.0,
+      7200.0,
+      7800.0,
+      8400.0,
+      9000.0,
+      9600.0,
+      10200.0,
+      10800.0,
+      11400.0,
+      12000.0,
+      12372.164473660809
+    ],
+    "q_m3s": [
+      0.0,
+      608.0131580519163,
+      1216.0263161038326,
+      1824.039474155749,
+      2432.0526322076653,
+      3040.0657902595817,
+      3648.078948311498,
+      4256.092106363414,
+      4864.105264415331,
+      5472.118422467247,
+      6080.131580519163,
+      6466.128070824841,
+      6229.672069562071,
+      5582.11546253998,
+      4934.55885551789,
+      4287.002248495801,
+      3639.44564147371,
+      2991.88903445162,
+      2344.332427429529,
+      1696.775820407439,
+      1049.2192133853487,
+      401.6626063632584,
+      0.0
+    ],
+    "peak_q_m3s": 6466.128070824841,
+    "time_to_peak_s": 6380.909345655364,
+    "volume_m3": 39999999.99999999,
+    "mass_balance_error_pct": -1.862645149230957e-14,
+    "peak_within_m2_range": true,
+    "caveats": [
+      {
+        "id": "triangular_fallback",
+        "severity": "info",
+        "text_key": "caveat_triangular_fallback"
+      },
+      {
+        "id": "clear_water",
+        "severity": "info",
+        "text_key": "caveat_clear_water"
+      },
+      {
+        "id": "moraine_extrapolation",
+        "severity": "info",
+        "text_key": "caveat_moraine_extrapolation"
+      },
+      {
+        "id": "placeholder_data",
+        "severity": "warning",
+        "text_key": "caveat_placeholder_data"
+      }
+    ],
+    "has_placeholders": true
+  },
+  "saved_scenario_id": null
+}
