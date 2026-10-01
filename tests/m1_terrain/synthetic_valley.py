@@ -74,9 +74,11 @@ def valley_geometry(breach_lonlat: tuple[float, float], downstream_lonlat: tuple
     return ValleyGeometry(ox, oy, dx / norm, dy / norm)
 
 
-def elevation(x, y, geom: ValleyGeometry, lake_center=None, reservoir_center=None):
+def elevation(x, y, geom: ValleyGeometry, lake_center=None, reservoir_center=None, floor_half_width_m: float = 0.0):
+    """`floor_half_width_m` > 0 gives the V a flat floor of that half-width (walls start at its
+    edge); the default 0 is the original sharp V."""
     s, d = geom.s_d(x, y)
-    elev = CREST_ELEV_AT_BREACH - DOWN_SLOPE * s + SIDE_SLOPE * d
+    elev = CREST_ELEV_AT_BREACH - DOWN_SLOPE * s + SIDE_SLOPE * np.maximum(d - floor_half_width_m, 0.0)
     for center, radius, depth in ((lake_center, LAKE_RADIUS_M, LAKE_DEPTH_M), (reservoir_center, RESERVOIR_RADIUS_M, RESERVOIR_DEPTH_M)):
         if center is None:
             continue
@@ -107,6 +109,7 @@ def write_raw_rasters(
     *,
     dem_filename: str = "dem_srtm_gl1.tif",
     landcover_filename: str = "landcover_esa_worldcover.tif",
+    floor_half_width_m: float = 0.0,
 ) -> ValleyGeometry:
     """Write a synthetic raw DEM + landcover raster (UTM, `RASTER_RES_M`) covering `bbox_deg`
     (EPSG:4326) into `raw_dir`. Returns the `ValleyGeometry` used, so tests can compute expected
@@ -130,7 +133,8 @@ def write_raw_rasters(
     lake_center = lonlat_to_utm(*lake_lonlat)
     reservoir_center = lonlat_to_utm(*reservoir_lonlat) if reservoir_lonlat else None
 
-    dem = elevation(x, y, geom, lake_center=lake_center, reservoir_center=reservoir_center).astype(np.float32)
+    dem = elevation(x, y, geom, lake_center=lake_center, reservoir_center=reservoir_center,
+                    floor_half_width_m=floor_half_width_m).astype(np.float32)
     landcover = landcover_class(x, y, geom, lake_center=lake_center, reservoir_center=reservoir_center)
 
     r0, r1 = int(height * VOID_ROW_FRAC[0]), int(height * VOID_ROW_FRAC[1])
