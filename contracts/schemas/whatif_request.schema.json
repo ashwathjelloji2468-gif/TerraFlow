@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whatif_request.schema.json",
+  "title": "POST /sites/{site_id}/whatif request (Feature 4, breach-level what-if)",
+  "description": "Overrides for one dam. `inputs` override M2 breach inputs (SI); `scenario` fixes scenario parameters; anything not given comes from M2's range bound for `case`. `save_as` stores the result as the named scenario <site_id>__n_<save_as>.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "dam_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "water_volume_m3": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "water_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "breach_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "dam_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "average_embankment_width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "dam_type": {
+          "enum": [
+            "HD",
+            "CD",
+            "FD",
+            "ZD",
+            null
+          ]
+        },
+        "failure_mode": {
+          "enum": [
+            "O",
+            "P",
+            null
+          ]
+        },
+        "erodibility": {
+          "enum": [
+            "H",
+            "M",
+            "L",
+            null
+          ]
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "breach_width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "failure_time_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "peak_discharge_m3s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "case": {
+      "enum": [
+        "low",
+        "high"
+      ]
+    },
+    "dt_s": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 3600
+    },
+    "save_as": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z][a-z0-9_]{0,39}$"
+    }
+  }
+}

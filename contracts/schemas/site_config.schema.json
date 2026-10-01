@@ -675,6 +675,161 @@
       "title": "Domains",
       "type": "object"
     },
+    "EmulatorInput": {
+      "additionalProperties": false,
+      "description": "Contract \u00a73.3 `emulator_inputs` entry. Feature 4 uses only `water_volume_m3` (F4-D5:\nvolume is sampled only over an explicit range here); the other names are accepted and kept\nfor later features.",
+      "properties": {
+        "name": {
+          "enum": [
+            "water_volume_m3",
+            "initial_water_level_m",
+            "breach_width_m",
+            "failure_time_s",
+            "manning_multiplier"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "dam_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dam Id"
+        },
+        "range": {
+          "$ref": "#/$defs/EmulatorInputRange"
+        },
+        "slider": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmulatorInputSlider"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        }
+      },
+      "required": [
+        "name",
+        "range"
+      ],
+      "title": "EmulatorInput",
+      "type": "object"
+    },
+    "EmulatorInputRange": {
+      "additionalProperties": false,
+      "description": "Contract \u00a73.3 `emulator_inputs[].range`. Like every config fact it carries a source and a\nstatus; a range that is not sourced stays `placeholder` and flags results (CLAUDE.md rule 3).",
+      "properties": {
+        "low": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Low"
+        },
+        "high": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "High"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Basis"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "default": "placeholder",
+          "enum": [
+            "sourced",
+            "placeholder"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "low",
+        "high",
+        "unit",
+        "source"
+      ],
+      "title": "EmulatorInputRange",
+      "type": "object"
+    },
+    "EmulatorInputSlider": {
+      "additionalProperties": false,
+      "properties": {
+        "positions": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Positions",
+          "type": "array"
+        },
+        "mapping": {
+          "enum": [
+            "linear",
+            "log"
+          ],
+          "title": "Mapping",
+          "type": "string"
+        }
+      },
+      "required": [
+        "positions",
+        "mapping"
+      ],
+      "title": "EmulatorInputSlider",
+      "type": "object"
+    },
     "EpsgValue": {
       "additionalProperties": false,
       "description": "A WGS 84 / UTM EPSG code (326nn north, 327nn south).",
@@ -1499,6 +1654,14 @@
     },
     "simulation": {
       "$ref": "#/$defs/Simulation"
+    },
+    "emulator_inputs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EmulatorInput"
+      },
+      "title": "Emulator Inputs",
+      "type": "array"
     }
   },
   "required": [

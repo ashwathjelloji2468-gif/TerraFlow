@@ -23,6 +23,7 @@ import siteSummary from '../../../contracts/examples/site_summary.example.json';
 import styles from '../../../contracts/styles.json';
 import timeline from '../../../contracts/examples/timeline.example.json';
 import validation from '../../../contracts/examples/validation.example.json';
+import whatifResponse from '../../../contracts/examples/whatif_response.example.json';
 
 export type FloodQueryRequest = {
   site_id: string;
@@ -145,6 +146,32 @@ export type SourcedValue = {value: unknown; unit: string | null; source: string 
 export type SiteDetail = SiteSummary & {
   dams: Array<{dam_id: string; name: string; kind: string | null; order: number; key_specs: Record<string, SourcedValue>}>;
 };
+/** Contract §4.3 scenario design (Feature 4). */
+export type ScenarioParams = {water_volume_m3: number; breach_width_m: number; failure_time_s: number; peak_discharge_m3s?: number};
+export type ScenarioPoint = {scenario_id: string; kind: 'design' | 'held_out' | 'historical' | 'named'; params: ScenarioParams; source?: string};
+export type ScenarioDesign = {
+  contract_version: string; site_id: string; model: string; method: string; seed: number; n: number;
+  inputs: Array<{name: string; dam_id: string; low: number; high: number; unit: string}>;
+  scenarios: ScenarioPoint[]; extra: ScenarioPoint[]; has_placeholders: boolean; caveats: string[];
+  provenance?: Record<string, unknown> & {fingerprint?: string; hydrograph_method?: string; breach_params_sha256?: string;
+    sampled_inputs?: string[]; generated_at?: string; rejected?: unknown[]};
+};
+/** Feature 4 breach-level what-if (POST /sites/{id}/whatif). */
+export type WhatIfRequest = {
+  dam_id?: string | null;
+  inputs?: Partial<Record<'water_volume_m3' | 'water_height_m' | 'breach_height_m' | 'dam_height_m' | 'average_embankment_width_m', number>> &
+    {dam_type?: 'HD' | 'CD' | 'FD' | 'ZD'; failure_mode?: 'O' | 'P'; erodibility?: 'H' | 'M' | 'L'};
+  scenario?: {breach_width_m?: number; failure_time_s?: number; peak_discharge_m3s?: number};
+  case?: 'low' | 'high'; dt_s?: number; save_as?: string | null;
+};
+export type WhatIfResponse = {
+  contract_version: string; site_id: string; dam_id: string; case: 'low' | 'high'; status: 'ok' | 'blocked';
+  input_overrides: Record<string, {from: unknown; to: unknown}>; breach_params: Record<string, any>;
+  hydrograph_method: string; scenario_params: Partial<ScenarioParams>; param_basis: Record<string, string>;
+  blocked_reasons: string[]; has_placeholders: boolean; caveats: string[]; saved_scenario_id: string | null;
+  hydrograph: null | {method: string; dt_s: number; t_s: number[]; q_m3s: number[]; peak_q_m3s: number; time_to_peak_s: number;
+    volume_m3: number; mass_balance_error_pct: number; peak_within_m2_range: boolean | null; has_placeholders: boolean};
+};
 export type SiteCreateRequest = {site_config: Record<string, unknown>; demo_mode?: boolean};
 export type SiteCreateAccepted = {job_id: string; site_id: string};
 /** Contract §5.9 / contracts/scene3d.md — GET /scene3d/{query_id}. */
@@ -183,7 +210,7 @@ const fixtures: Record<string, unknown> = {
   health, styles, sites: siteList, site: siteDetail, siteSummary, siteRequest,
   siteAccepted, jobAccepted, jobStatus, floodRequest, floodResponse, impact,
   compare, validation, historicalValidation, geeLayers, scene3d, timeline,
-  extent, geojson, breachParams, scenarioDesign, error: errorExample,
+  extent, geojson, breachParams, scenarioDesign, whatifResponse, error: errorExample,
 };
 
 /** Contract §2.7 error message, either bare or wrapped by FastAPI's HTTPException as `{detail: ...}`. */
@@ -221,6 +248,8 @@ export const api = {
   styles: () => request('/styles', {}, 'styles'),
   sites: () => request<SiteSummary[]>('/sites', {}, 'sites'),
   site: (siteId: string) => request<SiteDetail>(`/sites/${encodeURIComponent(siteId)}`, {}, 'site'),
+  design: (siteId: string) => request<ScenarioDesign>(`/sites/${encodeURIComponent(siteId)}/design`, {}, 'scenarioDesign'),
+  whatif: (siteId: string, body: WhatIfRequest) => request<WhatIfResponse>(`/sites/${encodeURIComponent(siteId)}/whatif`, json(body), 'whatifResponse'),
   createSite: (body: SiteCreateRequest) => request<SiteCreateAccepted>('/sites', json(useMocks ? siteRequest : body), 'siteAccepted'),
   job: (jobId: string) => request<JobStatus>(`/jobs/${encodeURIComponent(jobId)}`, {}, 'jobStatus'),
   recheck: (siteId: string, body: unknown) => request(`/sites/${encodeURIComponent(siteId)}/recheck`, {method: 'PUT', body: JSON.stringify(body)}, 'siteSummary'),

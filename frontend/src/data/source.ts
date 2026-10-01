@@ -9,7 +9,7 @@
 // inventing routes for them.
 import type {Grid, Params, Result} from '@/lib/model';
 import type {Scenario} from '@/lib/sentriq';
-import {api, useMocks, type FloodQueryRequest, type FloodQueryResponse, type ImpactResponse, type CompareResponse, type GeeLayers, type Timeline, type SiteSummary, type SiteDetail, type JobStatus, type ValidationResponse, type HistoricalValidationResponse, type Scene3DResponse} from './api';
+import {api, ApiError, useMocks, type ScenarioDesign, type ScenarioPoint, type WhatIfRequest, type WhatIfResponse, type FloodQueryRequest, type FloodQueryResponse, type ImpactResponse, type CompareResponse, type GeeLayers, type Timeline, type SiteSummary, type SiteDetail, type JobStatus, type ValidationResponse, type HistoricalValidationResponse, type Scene3DResponse} from './api';
 import uiText from '../content/ui_text.json';
 import * as offlineCache from '../offline/cache-store';
 import {collectGlobalUrls, collectResourceUrls, type OfflineBundle} from '../offline/resource-list';
@@ -95,6 +95,47 @@ export function timelineRasterOverlay(timeline: Timeline | null, frameIndex: num
  * real route. */
 export async function listScenarios(): Promise<Awaiting & {scenarios: Scenario[]}> {
   return {status: 'awaiting', reason: 'No scenario library exists for this site yet.', scenarios: []};
+}
+
+/** Feature 4 — GET /sites/{id}/design: the site's real scenario design, flattened into rows
+ * (design, held-out and saved what-if scenarios). `null` when the design stage has not run yet. */
+export type DesignRow = {scenario_id: string; kind: string; water_volume_m3: number; breach_width_m: number;
+  failure_time_s: number; peak_discharge_m3s: number | null; source?: string};
+export async function getScenarioDesign(siteId: string): Promise<{design: ScenarioDesign; rows: DesignRow[]} | null> {
+  if (!siteId) throw new Error('A site_id is required to load the scenario design.');
+  try {
+    const design = await api.design(siteId);
+    return {design, rows: [...design.scenarios, ...design.extra].map(designRow)};
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
+export function designRow(p: ScenarioPoint): DesignRow {
+  return {scenario_id: p.scenario_id, kind: p.kind, water_volume_m3: p.params.water_volume_m3,
+    breach_width_m: p.params.breach_width_m, failure_time_s: p.params.failure_time_s,
+    peak_discharge_m3s: p.params.peak_discharge_m3s ?? null, source: p.source};
+}
+
+/** Feature 4 — POST /sites/{id}/whatif. Only fields the user actually set are sent; empty
+ * fields are omitted so M2's own range bounds (for `case`) fill them -- nothing is defaulted here. */
+export type WhatIfForm = {damId?: string; waterVolumeM3?: number | null; breachWidthM?: number | null;
+  failureTimeS?: number | null; peakDischargeM3s?: number | null; case: 'low' | 'high'; saveAs?: string};
+export function whatIfRequest(form: WhatIfForm): WhatIfRequest {
+  const has = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
+  const req: WhatIfRequest = {case: form.case, inputs: {}, scenario: {}};
+  if (form.damId) req.dam_id = form.damId;
+  if (has(form.waterVolumeM3)) req.inputs!.water_volume_m3 = form.waterVolumeM3;
+  if (has(form.breachWidthM)) req.scenario!.breach_width_m = form.breachWidthM;
+  if (has(form.failureTimeS)) req.scenario!.failure_time_s = form.failureTimeS;
+  if (has(form.peakDischargeM3s)) req.scenario!.peak_discharge_m3s = form.peakDischargeM3s;
+  if (form.saveAs && form.saveAs.trim()) req.save_as = form.saveAs.trim();
+  return req;
+}
+export async function runWhatIf(siteId: string, form: WhatIfForm): Promise<WhatIfResponse> {
+  if (!siteId) throw new Error('A site_id is required to run a what-if.');
+  return api.whatif(siteId, whatIfRequest(form));
 }
 
 /** Contract §5 #14 / §4.7 — GET /impact/{query_id}. */

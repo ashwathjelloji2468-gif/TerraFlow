@@ -136,8 +136,8 @@ fixing so every module emits the same derived id.
 |---|---|---|
 |`site_id`|`^[a-z][a-z0-9_]{2,31}$`|`teesta`, `rishiganga`|
 |`dam_id`|derived, `<site_id>__<dam.id>`|`teesta__south_lhonak`, `teesta__teesta_iii`|
-|`scenario_id`|`<site_id>_s<NNN>` (design), `<site_id>_hist_<event>` (historical), `<site_id>_demo_s<NNN>` (demo mode), `<site_id>_n_<slug>` (named extra)|`teesta_s007`, `teesta_hist_2023`|
-|`run_id`|`<scenario_id>__<model>`|`teesta_s007__delft3d`, `teesta_s003__sph`|
+|`scenario_id`|`<site_id>__s<NNN>` (design), `<site_id>__n_holdout<NNN>` (held-out), `<site_id>__hist_<event>` (historical), `<site_id>__demo_s<NNN>` (demo mode), `<site_id>__n_<slug>` (named extra, incl. saved what-ifs and Feature 3's `__n_m2_low`/`__n_m2_high` references) — the format the code emits (Feature 4, docs/decisions.md 2026-10-01 F4-D2)|`teesta__s007`, `teesta__hist_teesta_2023`|
+|`run_id`|`<scenario_id>__<model>`|`teesta__s007__delft3d`, `teesta__s003__sph`|
 |`model`|`delft3d` \| `sph`|`delft3d` means **D-Flow FM** (`docs/decisions.md` 2026-09-26 "M3: back to Delft3D FM"); no enum change|
 |`query_id`|`q_<YYYYMMDDTHHMMSSZ>_<6 hex>`|`q_20260924T101500Z_3fa9c1`|
 |`job_id`|`job_<YYYYMMDDTHHMMSSZ>_<6 hex>`|`job_20260924T101500Z_b17e02`|
@@ -582,6 +582,16 @@ Sidecar:
 }
 ```
 
+**Feature 4 (2026-10-01, additive):** the design is built from `breach/breach_params.json` (Feature 3),
+never recomputed. `params.peak_discharge_m3s` (optional, m³/s) is present when the target dam's hydrograph
+is `triangular` (no sourced weir method) and is sampled from M2's widened Q_p pair range; `water_volume_m3`
+is sampled only over an explicit `emulator_inputs` range (§3.3), otherwise fixed. Every listed scenario
+has been turned into a real M2 hydrograph; rejected points are in `provenance.rejected`. `provenance`
+records `fingerprint`, `breach_params_sha256`, raw and widened ranges, `input_widen_fraction`, seed,
+sampled/fixed inputs, hydrograph method, per-scenario checks and `generated_at`. Identical regeneration is
+a no-op; a changed design is archived to `design/history/<fingerprint>.json` and new IDs continue past every
+ID ever issued. Saved what-ifs live in `design/named_scenarios.json` and are carried into `extra` (kind `named`).
+
 ### 4.4 Run results (M3 and M4, identical schema) → `runs/<run_id>/`
 
 **Inputs:** terrain (§4.1), hydrograph(s) (§4.2), scenario params (§4.3), simulation settings (site config).
@@ -819,6 +829,8 @@ Base URL: `http://localhost:8000/api/v1`. JSON unless stated. Errors per §2.7. 
 |20|`POST /gee/{site_id}/refresh`|try live fetch, fall back to cache|`GeeLayers`|
 |21|`GET /scene3d/{query_id}?vertical_exaggeration=`|3D view data|`Scene3D`|
 |22|`GET /files/{path}`|static result files referenced by URLs above|file|
+|23|`GET /sites/{site_id}/design`|the site's scenario design (§4.3), 404 `design_not_found` before the design stage|`scenario_design.schema.json`|
+|24|`POST /sites/{site_id}/whatif`|breach-level what-if: overrides -> real M2 recomputation + real M2 hydrograph (no flood map); optional `save_as` -> named scenario `<site_id>__n_<slug>` (409 `scenario_name_taken` on a duplicate; 422 `invalid_whatif` for an invalid, blocked-and-saved, or non-reproducible save)|`whatif_request.schema.json` -> `whatif_response.schema.json`|
 
 ### 5.1 SiteSummary / SiteDetail
 

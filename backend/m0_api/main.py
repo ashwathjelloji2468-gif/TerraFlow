@@ -43,6 +43,8 @@ from fastapi.responses import JSONResponse, Response
 from backend.m0_api import jobs, mock_files, mocks, onboarding, registry, rendering, schemas, site_registry, site_status
 from backend.m0_api import compare as api_compare
 from backend.m0_api import real_query
+from backend.m5_emulator import scenario_design as m5_design
+from backend.m5_emulator import whatif as m5_whatif
 from backend.m0_api import scene3d as api_scene3d
 from backend.m0_api import timeline as api_timeline
 from backend.m0_api import real_timeline
@@ -246,6 +248,35 @@ def rerun_site(site_id: SiteIdPath) -> JSONResponse:
     finally:
         conn.close()
     return _validated_json("job_accepted.schema.json", {"job_id": job_id}, status_code=202)
+
+
+# =============================================================================
+# Feature 4. GET /sites/{site_id}/design, POST /sites/{site_id}/whatif
+# =============================================================================
+@app.get(f"{API}/sites/{{site_id}}/design")
+def get_design(site_id: SiteIdPath) -> JSONResponse:
+    """The site's persisted scenario design (contract §4.3), including saved named what-ifs."""
+    _site_config_or_error(site_id)
+    design = m5_design.load_design(site_id, registry.data_dir())
+    if design is None:
+        raise HTTPException(status_code=404, detail=mocks.error(
+            "design_not_found", f"Site '{site_id}' has no scenario design yet; it is written by the onboarding "
+            "job's design stage.", {"site_id": site_id}))
+    return _validated_json("scenario_design.schema.json", design)
+
+
+@app.post(f"{API}/sites/{{site_id}}/whatif")
+def post_whatif(site_id: SiteIdPath, body: Annotated[dict, Body(...)]) -> JSONResponse:
+    """Breach-level what-if: real M2 recomputation + real M2 hydrograph (no flood map, Feature 8)."""
+    cfg = _site_config_or_error(site_id)
+    _validate_request_body("whatif_request.schema.json", body)
+    try:
+        result = m5_whatif.evaluate(cfg, body, registry.data_dir())
+    except m5_whatif.NameTaken as exc:
+        raise HTTPException(status_code=409, detail=mocks.error("scenario_name_taken", str(exc), {"site_id": site_id})) from exc
+    except m5_whatif.WhatIfInvalid as exc:
+        raise HTTPException(status_code=422, detail=mocks.error("invalid_whatif", str(exc), {"site_id": site_id})) from exc
+    return _validated_json("whatif_response.schema.json", result)
 
 
 # =============================================================================

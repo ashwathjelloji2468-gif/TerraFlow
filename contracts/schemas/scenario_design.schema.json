@@ -51,7 +51,8 @@
           "properties": {
             "water_volume_m3": { "type": "number" },
             "breach_width_m": { "type": "number" },
-            "failure_time_s": { "type": "number" }
+            "failure_time_s": { "type": "number" },
+            "peak_discharge_m3s": { "type": "number", "exclusiveMinimum": 0, "description": "Optional (Feature 4, F4-D1): present when the target dam's hydrograph is triangular and needs Q_p, sampled from M2's peak-discharge range." }
           },
           "additionalProperties": false
         },

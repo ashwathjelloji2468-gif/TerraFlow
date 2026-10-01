@@ -1309,3 +1309,26 @@ build a Delft3D near-field water surface from the paired near-field DEM and maxi
 - Per-dam `warnings` now flag placeholder-*valued* inputs (`placeholder-valued input(s) used: ...`
   + `placeholder_data`), not only null ones. M2 writers honour `SIH26_DATA_DIR`.
 
+## 2026-10-01 — Feature 4: scenario generation and what-if (DECIDED with user)
+
+- **Source of ranges:** the design reads Feature 3's `breach/breach_params.json` (its SHA-256 in
+  `provenance.breach_params_sha256`); a missing file or one whose `inputs_used` no longer match the config
+  is an explicit `BreachParamsUnavailable` error. Ranges are never recomputed in M5.
+- **F4-D1:** optional `params.peak_discharge_m3s` (schema addition). Sampled (log10, widened like B_ave/T_f)
+  only when the target dam has no sourced weir method; a blocked Q_p range then blocks the design
+  (FD/ZD dams without weir inputs). Caveat `peak_discharge_sampled_independently`: Q_p is sampled
+  independently of B_ave/T_f, as no source couples them.
+- **Hydrograph validation:** every sampled point is turned into a real M2 hydrograph; failing points are
+  rejected with the reason (`provenance.rejected`) and get no ID. No valid point -> design blocked.
+- **F4-D2:** scenario IDs use the code's `__` format (contract §1.7 updated); Feature 3 references are now
+  `<site>__n_m2_low` / `__n_m2_high`.
+- **F4-D3:** `provenance.fingerprint` = SHA-256 of site, dam, settings, seed, raw ranges, fixed volume and
+  hydrograph method. Identical -> no-op; changed -> old design archived, IDs continue (never reused).
+- **F4-D4:** `GET /sites/{id}/design`, `POST /sites/{id}/whatif` (new schemas). What-if: unset scenario
+  parameters come from M2's own range bound for `case` (same rule as Feature 3 references). A what-if is
+  saved only if its scenario parameters alone reproduce the hydrograph with the configured dam (the campaign
+  runs the configured dam); otherwise 422.
+- **F4-D5:** `emulator_inputs` (contract §3.3) implemented in `SiteConfig` and `site_config.schema.json`
+  (regenerated from the model); `water_volume_m3` is sampled (log10, not widened) only over such a range.
+- PCA/GP still take 3 inputs; a 4th (Q_p) is Feature 7's change.
+

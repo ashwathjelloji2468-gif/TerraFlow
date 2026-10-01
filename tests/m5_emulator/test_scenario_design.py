@@ -129,8 +129,12 @@ def test_design_from_ranges_caveats_passed_through():
 
 
 def test_build_scenario_design_uses_computed_breach_width_range(tmp_path):
+    """Feature 4: the design reads Feature 3's breach_params.json (written here first)."""
+    from backend.m2_breach.breach_params import write_breach_params
+
     cfg = _load(_fully_sourced_synth_raw(), tmp_path)
-    payload = build_scenario_design(cfg, "synth_lake", SETTINGS)
+    write_breach_params(cfg, data_dir=tmp_path / "data")
+    payload = build_scenario_design(cfg, "synth_lake", SETTINGS, data_dir=tmp_path / "data")
     width = next(item for item in payload["inputs"] if item["name"] == "breach_width_m")
     assert width["low"] > 0
     assert width["high"] > width["low"]
