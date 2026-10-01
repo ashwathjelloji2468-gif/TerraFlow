@@ -22,9 +22,8 @@ from shapely.ops import nearest_points, substring
 from shapely.ops import unary_union
 
 from backend.m2_breach.hydrograph import hydrograph as m2_hydrograph
-from backend.shared.site_config import SiteConfig, load_site_config
+from backend.shared.site_config import SiteConfig, default_data_dir, load_site_config
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 KERNEL = Path.home() / "delft3d/dflowfm-2026.01/lnx64/bin/run_dflowfm.sh"
 SPINUP_S = 7200.0
 DEFAULT_STOP_S = 108000.0
@@ -408,7 +407,8 @@ def build_case(site_id: str, scenario_id: str, params: dict, *, data_dir: str | 
         raise ValueError("domains.far_field.inflow.base_flow is missing or null")
     dam_id = config.domains.far_field.inflow.from_
     hydro = m2_hydrograph(site_id, dam_id, params, sites_dir=sites_dir)
-    root = Path(data_dir) if data_dir is not None else DATA_DIR
+    # `$SIH26_DATA_DIR`, else `<repo>/data` -- resolved per call, like the rest of the pipeline.
+    root = Path(data_dir) if data_dir is not None else default_data_dir()
     terrain = root / site_id / "terrain"
     target = Path(case_dir) if case_dir is not None else root / site_id / "runs" / scenario_id / "dflowfm"
     metadata = _write_case_files(target, config, scenario_id, params, terrain, hydro.t_s, hydro.q_m3s,

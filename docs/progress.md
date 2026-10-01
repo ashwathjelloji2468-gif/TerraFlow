@@ -2944,3 +2944,25 @@ new `test:scenarios`.
 
 **For Feature 5:** `build_case` still needs `domains.far_field.inflow.base_flow` (null for Teesta).
 
+
+## 2026-10-01 — Feature 5 phase 1: D-Flow FM preflight, data-dir fixes, real-kernel smoke test
+
+**Built:** `scripts/dflowfm_preflight.py` (logic in `backend/m3_dflowfm/preflight.py`): read-only
+PASS/WARNING/BLOCKED checks for platform, kernel (`--kernel`, `SIH26_DFLOWFM_KERNEL`, documented default),
+`/usr/bin/time`, Python modules (hydrolib-core/meshkernel pins), free disk (`--min-free-gb`, no built-in
+threshold), site config, terrain inputs, breach/reference hydrographs, scenario design (incl.
+breach_params sha256) and base flow. A null base flow is BLOCKED; no value is supplied.
+`backend/m3_dflowfm/smoke.py`: runs one case on the configured kernel through `launcher.launch_case` and
+reports `solver_success`, `postprocess_success` and `wet_at_pois` separately, plus kernel provenance
+(`/usr/bin/time` command line, `.dia` Program/Version written after launch) and downstream wet faces.
+
+**Fixed:** `generator.build_case` defaulted to `<repo>/data` (import-time `DATA_DIR`), ignoring
+`SIH26_DATA_DIR`; `campaign.run_dflowfm_campaign` built a missing design without its `data_dir`.
+
+**Tests:** `test_preflight.py`, `test_data_dir_propagation.py` (fail on the old code),
+`test_smoke_harness.py`, `test_real_solver.py` (real kernel; skips with the reason when
+`SIH26_DFLOWFM_KERNEL` is unset). Full `pytest -q` green.
+
+**Not done (by design):** no real run in this sandbox (no kernel); Teesta base flow still null; no
+study-reach/outlet config; no multi-scenario campaign. Found, not fixed: `postprocess._solver_wall_seconds`
+regex never matches GNU time's "(h:mm:ss or m:ss)" line, so `run_meta.wall_time_s` falls back to `.dia` stamps.
