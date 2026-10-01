@@ -14,7 +14,6 @@ import yaml
 from backend.m1_terrain.pipeline import build_terrain
 from backend.m5_emulator import scenario_design
 from backend.m5_emulator.scenario_design import ScenarioDesignSettings
-from backend.m2_breach.breach_params import write_breach_params
 from backend.shared.site_config import load_site_config
 
 
@@ -64,10 +63,13 @@ def prepare_terrain(site_id: str, data_dir: str | Path, config: dict | None = No
                          water_polygon_path=water_polygon)
 
 
-def prepare_breach(site_id: str, data_dir: str | Path) -> Path:
-    """Run M2 and write its canonical breach-parameter result."""
+def prepare_breach(site_id: str, data_dir: str | Path, event=None) -> Path:
+    """Feature 3: run M2 for every dam (breach parameters, reference low/high hydrographs,
+    Feature 2 evidence) and write `breach/breach_params.json` + `breach/hydrographs/`."""
+    from backend.m2_breach.reference import run_breach_stage
+
     cfg = _load_config(site_id, data_dir)
-    return write_breach_params(cfg, data_dir=Path(data_dir))
+    return run_breach_stage(cfg, data_dir=Path(data_dir), event=event)
 
 
 def prepare_design(site_id: str, data_dir: str | Path, *, demo: bool = False) -> Path:

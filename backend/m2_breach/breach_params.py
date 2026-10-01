@@ -13,13 +13,13 @@ import json
 import subprocess
 from pathlib import Path
 
-from backend.shared.site_config import Dam, SiteConfig
+from backend.shared.site_config import Dam, SiteConfig, _placeholder_paths, default_data_dir
 
 from . import dfm, f8, f16, f95, h14, mclm, ranges, xz9, z20
 from .result import BlockedEquationError, MethodResult, warn_if_breach_exceeds_dam
 
 CONTRACT_VERSION = "0.3.0"
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# Output root: `$SIH26_DATA_DIR`, else `<repo>/data` (`site_config.default_data_dir`), resolved per call.
 
 
 def _code_version() -> str:
@@ -72,7 +72,12 @@ def _compute_peak_discharge(v: dict, missing: list[str]) -> dict[str, MethodResu
     else:
         out["Z20"] = _blocked_missing("Z20", "m3s", [m for m in ("V_w", "h_w", "h_b", "h_d", "dam_type") if m in missing])
 
-    out["XZ9"] = xz9.xz9_result("peak_discharge_m3s")
+    xz9_needed = ("V_w", "h_w", "h_b", "h_d", "dam_type", "failure_mode", "erodibility")
+    if not (set(xz9_needed) & set(missing)):
+        out["XZ9"] = xz9.peak_discharge_xz9(v["V_w"], v["h_w"], v["h_b"], v["h_d"], v["dam_type"],
+                                             v["failure_mode"], v["erodibility"])
+    else:
+        out["XZ9"] = _blocked_missing("XZ9", "m3s", [m for m in xz9_needed if m in missing])
 
     if not ({"V_w", "h_w"} & set(missing)):
         out["H14"] = h14.peak_discharge_h14(v["V_w"], v["h_w"])
@@ -129,6 +134,20 @@ def _compute_failure_time(v: dict, missing: list[str]) -> dict[str, MethodResult
     return out
 
 
+_INPUT_NAMES = {
+    "water_volume_above_invert": "V_w", "water_height_above_invert": "h_w", "breach_height": "h_b",
+    "dam_height": "h_d", "average_embankment_width": "W_ave", "dam_type": "dam_type",
+    "failure_mode": "failure_mode", "erodibility": "erodibility",
+}
+
+
+def placeholder_breach_inputs(dam: Dam) -> list[str]:
+    """Equation-input symbols (V_w, h_w, ...) whose SourcedValue has `status: placeholder`,
+    whether or not it carries a value."""
+    return [sym for field, sym in _INPUT_NAMES.items()
+            if getattr(dam.breach_inputs, field).status == "placeholder"]
+
+
 def _imposed_range(range_value, output: str) -> dict:
     """Build an `OutputRange`-shaped dict from a `Dam.imposed_ranges` field (`RangeValue`:
     `value: [low, high] | None`), for a dam with `equations_applicable: false`
@@ -158,7 +177,8 @@ def compute_dam(dam: Dam) -> dict:
                                                ("breach_width_m", ir.breach_width_m),
                                                ("failure_time_s", ir.failure_time_s))
                         if rv.value is None]
-        if placeholders:
+        if placeholders or any(rv.status == "placeholder" for rv in
+                               (ir.peak_discharge_m3s, ir.breach_width_m, ir.failure_time_s)):
             warnings.append("placeholder_data")
         return {
             "dam_id": dam.id,
@@ -175,12 +195,18 @@ def compute_dam(dam: Dam) -> dict:
         }
 
     v, missing = _values(dam)
+    # Feature 3: a placeholder with a number is still used in the equations, so it is flagged
+    # per dam exactly like a null one (only nulls block a method).
+    placeholder_inputs = placeholder_breach_inputs(dam)
 
     warnings: list[str] = []
     if v["h_b"] is not None and v["h_d"] is not None:
         warnings += warn_if_breach_exceeds_dam(v["h_b"], v["h_d"])
     if missing:
         warnings.append(f"placeholder input(s): {', '.join(missing)}")
+    valued = [name for name in placeholder_inputs if name not in missing]
+    if valued:
+        warnings.append(f"placeholder-valued input(s) used: {', '.join(valued)}")
 
     qp = _compute_peak_discharge(v, missing)
     bw = _compute_breach_width(v, missing)
@@ -192,7 +218,7 @@ def compute_dam(dam: Dam) -> dict:
     warnings += ["failure_time_uncertain", "clear_water"]
     if dam.kind in ("moraine_dammed_lake", "landslide_dam"):
         warnings.append("moraine_extrapolation")
-    if missing:
+    if placeholder_inputs:
         warnings.append("placeholder_data")
 
     qp_range = ranges.method_range("peak_discharge_m3s", qp["DFM_updated"], qp["DFM_2024"])
@@ -234,18 +260,18 @@ def compute_breach_params(cfg: SiteConfig) -> dict:
     }
 
 
-def write_breach_params(cfg: SiteConfig, data_dir: Path | None = None) -> Path:
-    """Compute and write `data/<site_id>/breach/breach_params.json`,
+def write_breach_params(cfg: SiteConfig, data_dir: Path | None = None, payload: dict | None = None) -> Path:
+    """Compute (or take `payload`) and write `<data dir>/<site_id>/breach/breach_params.json`,
     validated against `contracts/schemas/breach_params.schema.json` first.
 
     Returns the path written.
     """
     from backend.m0_api import schemas  # local import: keep m2_breach importable without m0_api at module load
 
-    payload = compute_breach_params(cfg)
+    payload = payload if payload is not None else compute_breach_params(cfg)
     schemas.validate("breach_params.schema.json", payload)
 
-    out_dir = (data_dir or DATA_DIR) / cfg.site.id / "breach"
+    out_dir = Path(data_dir or default_data_dir()) / cfg.site.id / "breach"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "breach_params.json"
     out_path.write_text(json.dumps(payload, indent=2) + "\n")

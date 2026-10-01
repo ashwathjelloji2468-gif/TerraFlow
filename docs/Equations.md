@@ -86,6 +86,9 @@ B4  = b3 + b4 + b5
 - `h_r` is the fixed Xu & Zhang model constant, 15.0 m. Source: PRIMARY (Xu & Zhang 2009),
   doi:10.1061/(asce)gt.1943-5606.0000162.
 - Valid range: NOT AVAILABLE.
+- **Implementation status (2026-10-01, Feature 3):** implemented in `backend/m2_breach/xz9.py`
+  `peak_discharge_xz9` exactly as transcribed above, with g = 9.81 m/s² (§0, as F16/F8);
+  `verified=False` — not checked against the original paper (docs/decisions.md 2026-10-01).
 
 ### 1.3 Zhong et al. (2020) — code Z20
 

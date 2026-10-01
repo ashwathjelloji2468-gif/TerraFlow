@@ -38,14 +38,14 @@ from pathlib import Path
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from backend.shared.site_config import Dam, SiteConfig, _placeholder_paths, load_site_config
+from backend.shared.site_config import Dam, SiteConfig, _placeholder_paths, default_data_dir, load_site_config
 
 from . import storage as storage_mod
 from .breach_params import compute_dam
 from .weir import weir_discharge
 
 CONTRACT_VERSION = "0.3.0"
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# Output root: `$SIH26_DATA_DIR`, else `<repo>/data` (`site_config.default_data_dir`), resolved per call.
 
 _DEFAULT_DT_S = 10.0
 _DEFAULT_T_OFFSET_S = 0.0
@@ -376,7 +376,7 @@ def write_hydrograph(hg: Hydrograph, site_id: str, scenario_id: str, data_dir: P
     sidecar = hg.sidecar()
     schemas.validate("hydrograph_sidecar.schema.json", sidecar)
 
-    out_dir = (data_dir or DATA_DIR) / site_id / "breach" / "hydrographs"
+    out_dir = Path(data_dir or default_data_dir()) / site_id / "breach" / "hydrographs"
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{scenario_id}__{hg.dam_id}"
     csv_path = out_dir / f"{stem}.csv"

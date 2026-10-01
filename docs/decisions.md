@@ -1284,3 +1284,28 @@ build a Delft3D near-field water surface from the paired near-field DEM and maxi
 - If `data/<site>/gee/lake_latest.geojson` exists, it is passed to M1 as the lake extent (the
   existing `water.py` hook).
 
+## 2026-10-01 — Feature 3: breach modelling and hydrograph generation (DECIDED with user)
+
+- **F3-D1 XZ9 peak discharge enabled** (`backend/m2_breach/xz9.py`), exactly as transcribed in
+  `docs/Equations.md` §1.2, with g = 9.81 m/s² (§0: NOT STATED by Azmi, implied by SI units — the
+  same basis F16/F8 already use). Still `verified=False`/SECONDARY: the original paper is not in
+  hand. The XZ9 breach-width label is corrected to SECONDARY (only h_r is PRIMARY). This supersedes
+  the 2026-09-24 "XZ9 peak discharge remains unavailable" status.
+- **F3-D2:** FD/ZD dams keep a blocked peak-discharge range (Updated DFM needs Z20, which has no
+  FD/ZD branch). No substitute pair is used; the individual methods (F16, H14, XZ9, DFM 2024) are
+  still reported.
+- **F3-D3 reference hydrographs:** the breach stage writes, per dam, `<site>_n_m2_low` (B_ave low,
+  T_f high, Q_p low) and `<site>_n_m2_high` (B_ave high, T_f low, Q_p high) hydrographs from M2's
+  own range bounds, at the config's water volume — `breach_growth_weir` when its inputs are
+  sourced, else `triangular` (needs the Q_p range). Anything missing -> `status: blocked` with the
+  reason in `breach_params.provenance.reference_hydrographs`; no file is written. Triggered cascade
+  dams get none (their start needs the routed stage-1 inflow). Designed-scenario hydrographs remain
+  Feature 4/5.
+- **F3-D4:** no weir coefficients are added; the weir method stays config-only.
+- **F3-D5:** `breach_params.provenance.evidence` records Feature 2 context (selected DEM, water-mask
+  lake/reservoir area, M7 lake outline, HydroBASINS catchment, GloFAS summary) as
+  `available`/`unavailable`; nothing in it changes an equation input.
+- **F3-D6:** GloFAS is never used as base flow by M2.
+- Per-dam `warnings` now flag placeholder-*valued* inputs (`placeholder-valued input(s) used: ...`
+  + `placeholder_data`), not only null ones. M2 writers honour `SIH26_DATA_DIR`.
+
