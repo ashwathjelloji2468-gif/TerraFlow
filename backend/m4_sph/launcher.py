@@ -22,6 +22,8 @@ from pathlib import Path
 
 from backend.m0_api import runner
 
+from . import solver_log
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -92,6 +94,31 @@ def _peak_vram_mib(path: Path) -> float | None:
     return max(values) if values else None
 
 
+def _gpu_identity(bin_dir: Path) -> dict:
+    """GPU name / driver as `nvidia-smi` reports them; empty when it is unavailable."""
+    executable = shutil.which("nvidia-smi")
+    if executable is None:
+        return {"nvidia_smi": None}
+    result = subprocess.run([executable, "--query-gpu=name,driver_version", "--format=csv,noheader"],
+                            env=_env(bin_dir), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            text=True, check=False)
+    rows = [r for r in csv.reader(result.stdout.splitlines()) if len(r) >= 2] if result.returncode == 0 else []
+    return {"nvidia_smi": executable, "gpu_name": rows[0][0].strip() if rows else None,
+            "gpu_driver_version": rows[0][1].strip() if rows else None}
+
+
+def _provenance(bin_dir: Path, gen_log: Path, solver_log_path: Path) -> dict:
+    """Executable paths plus facts the real logs printed (kept for failed runs too)."""
+    gen = solver_log.parse_log(gen_log.read_text(encoding="utf-8", errors="replace") if gen_log.is_file() else None)
+    sol = solver_log.parse_log(solver_log_path.read_text(encoding="utf-8", errors="replace")
+                               if solver_log_path.is_file() else None)
+    return {"gencase_executable": str(bin_dir / "GenCase_linux64"),
+            "solver_executable": str(bin_dir / "DualSPHysics5.4_linux64"),
+            "gencase_version": gen["gencase_version"] or sol["gencase_version"],
+            "gencase_particles": {k: gen[k] for k in ("total_particles", "bound_particles", "fluid_particles")},
+            "solver_log_facts": sol, **_gpu_identity(bin_dir)}
+
+
 def run_case_sync(case_dir: str | Path, run_dir: str | Path, binaries_dir: str | Path | None = None,
                   sample_interval_s: float = 1.0) -> dict:
     """Run GenCase then the GPU solver; write a truthful execution record.
@@ -107,7 +134,7 @@ def run_case_sync(case_dir: str | Path, run_dir: str | Path, binaries_dir: str |
     env = _env(bin_dir)
     start_at = _utc_now()
     start_wall = time.monotonic()
-    gen_log, solver_log = run_dir / "gencase.log", run_dir / "solver.log"
+    gen_log, solver_log_path = run_dir / "gencase.log", run_dir / "solver.log"
     root_run_dir = run_dir.parents[1] if run_dir.parent.name == "attempts" else run_dir.parent
     raw_dir = root_run_dir / "raw"
     if raw_dir.exists() and any(raw_dir.iterdir()):
@@ -135,13 +162,13 @@ def run_case_sync(case_dir: str | Path, run_dir: str | Path, binaries_dir: str |
         sampler.start()
         solver_rc, solver_wall = _run_logged(
             [str(bin_dir / "DualSPHysics5.4_linux64"), "-gpu", "-name", case_name,
-             "-dirout", str(raw_dir), "-dirdataout", "data"], case_dir, env, solver_log,
+             "-dirout", str(raw_dir), "-dirdataout", "data"], case_dir, env, solver_log_path,
         )
         stop_sample.set()
         sampler.join(timeout=max(2.0, sample_interval_s * 2.0))
-        solver_text = solver_log.read_text(encoding="utf-8", errors="replace")
-        if solver_rc == 0:
-            shutil.copyfile(solver_log, raw_dir / "log.txt")
+        solver_text = solver_log_path.read_text(encoding="utf-8", errors="replace")
+        # Kept for failed runs too, so post-mortems can read the solver's own version/exclusions.
+        shutil.copyfile(solver_log_path, raw_dir / "log.txt")
         part_files = [p for p in (raw_dir / "data").glob("Part_*.bi4") if p.is_file() and p.stat().st_size]
         if solver_rc != 0:
             error = f"DualSPHysics exited with status {solver_rc}"
@@ -171,6 +198,7 @@ def run_case_sync(case_dir: str | Path, run_dir: str | Path, binaries_dir: str |
         "gpu_sample_interval_s": sample_interval_s,
         "nvidia_smi_log": str(sample_path) if sample_path.is_file() else None,
         "error": error,
+        "provenance": _provenance(bin_dir, gen_log, solver_log_path),
     }
     (run_dir / "execution.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result

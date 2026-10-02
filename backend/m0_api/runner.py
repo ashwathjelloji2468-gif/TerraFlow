@@ -78,11 +78,41 @@ def tail(path: str | Path, n: int) -> list[str]:
         return []
 
 
+_HAS_PROC = Path("/proc/self/stat").is_file()
+
+
+def _proc_state_cmdline(pid: int) -> tuple[str, str] | None:
+    """(state, command line) from /proc (Linux/WSL); None if the process is gone."""
+    proc = Path(f"/proc/{pid}")
+    try:
+        state = (proc / "stat").read_text().rsplit(")", 1)[1].split()[0]
+        cmdline = (proc / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+    except (FileNotFoundError, ProcessLookupError, IndexError):
+        return None
+    return state, cmdline
+
+
+def _ps_state_cmdline(pid: int) -> tuple[str, str] | None:
+    """(state, command line) from `ps` (macOS/BSD, no /proc); None if the process is gone."""
+    try:
+        # -ww: no column-width truncation (Linux procps and BSD/macOS ps), so the run id survives.
+        result = subprocess.run(["ps", "-ww", "-p", str(pid), "-o", "stat=", "-o", "command="],
+                                capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = result.stdout.strip()
+    if result.returncode != 0 or not line:
+        return None
+    state, _, cmdline = line.partition(" ")
+    return state, cmdline.strip()
+
+
 def is_alive(pid: int, run_id: str) -> bool:
     """True if `pid` is a live (not zombie) process running `run_id`.
 
     Checking the command line guards against the OS having reused the PID for
-    an unrelated process after the run exited. Uses /proc, so Linux/WSL only.
+    an unrelated process after the run exited. Reads /proc on Linux/WSL; falls
+    back to `ps -ww -p <pid> -o stat= -o command=` where /proc is absent (macOS).
     """
     try:
         os.kill(pid, 0)
@@ -90,10 +120,9 @@ def is_alive(pid: int, run_id: str) -> bool:
         return False
     except PermissionError:
         pass  # exists, owned by someone else; the cmdline check decides
-    proc = Path(f"/proc/{pid}")
-    try:
-        state = (proc / "stat").read_text().rsplit(")", 1)[1].split()[0]
-        cmdline = (proc / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-    except (FileNotFoundError, ProcessLookupError, IndexError):
+    found = _proc_state_cmdline(pid) if _HAS_PROC else _ps_state_cmdline(pid)
+    if found is None:
         return False
-    return state not in ("Z", "X") and run_id in cmdline
+    state, cmdline = found
+    # /proc: Z zombie, X dead. ps: state starts with Z for a zombie.
+    return not state.startswith(("Z", "X")) and run_id in cmdline

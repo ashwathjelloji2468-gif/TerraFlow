@@ -2989,3 +2989,44 @@ BedLevType and Teesta inputs unchanged. **Not yet re-run on the real kernel.**
 **Open:** the generic generator's interior triangles are coarser than the configured spacing (median edge
 40 m, max 189 m at 30 m), the likely reason real-site cases (Teesta 77k) also leave POIs dry. Teesta
 base flow still null.
+
+## 2026-10-01 — Feature 6: DualSPHysics provenance, real smoke test, generic Delft3D ↔ SPH pairing
+
+**Built:** `m4_sph/solver_log.py` (facts the real logs print: solver/GenCase version, GPU, CUDA,
+particle counts, exclusions; `particle_retention` gate, threshold `max_excluded_particle_fraction`
+in `config/m4_sph.yaml`); launcher `execution.json` now carries executables + log facts + nvidia-smi
+GPU identity, also for failed runs (solver log kept in `raw/log.txt`); run_meta uses measured VRAM /
+wall time (false "not measured" warning removed). Fixed: the old version regex read "5.0" from the
+log's citation list. `m4_sph/generator.py` data dir now `$SIH26_DATA_DIR`. `m4_sph/smoke.py` +
+`tests/m4_sph/test_real_solver.py` (real GenCase/solver/post-processing; separate solver /
+post-processing / particle-retention verdicts). `m3_dflowfm/section_discharge.py`: generic Feature 5 →
+M4 inflow (speed-magnitude-as-normal caveat kept); `run_sph_campaign` uses it for `far_field` inflow.
+`m4_sph/compare.py`: generic `<scenario>__delft3d` ↔ `<scenario>__sph` pairing with solver /
+postprocess / comparison / validation statuses (validation always BLOCKED: no observations);
+`/compare` serves it; Compare UI shows statuses and site-neutral text. `m4_sph/exclusion_diagnosis.py`.
+
+**Not run here:** no DualSPHysics binaries or GPU in this sandbox — the real SPH smoke test skips.
+
+**Teesta exclusion defect: BLOCKED, not fixed.** Recorded evidence (2026-09-28): 100% `Motive=1`
+exclusions start at the bottom corner of the inlet box. Two mechanisms fit (inlet plane anchored at its
+centre bed so part sits under sloped terrain; `inputtreatment=2` self-removal). `inlet_burial` measures
+the first (synthetic case: bed above inlet bottom over 32% of the width, 3% of area buried); run
+`python -m backend.m4_sph.exclusion_diagnosis <run_dir> <terrain_dir>` on the retained a02/a03 data
+before changing inlet geometry. No Teesta SPH rerun; comparison stays gated.
+
+## 2026-10-02 — Feature 7: M5 emulator wired into POST /flood/query
+
+**Built:** `backend/m5_emulator/service.py` (emulator detection from the persisted manifest + PCA/GP
+files, `FloodEmulator.load`, exact-input resolution, POI→cell mapping inside the trained corridor,
+LOOCV grades from `validation/loocv.json` when present, `query.get_flood` in scenario or
+unknown-breach mode, GeoTIFF layers + extent.geojson + result.json under `queries/<query_id>/`,
+provenance from the manifest). `main.py` routes requests that are not a registered-run scenario
+query to it; demo-ready sites and registered `scenario_id` + `scenario` queries are unchanged.
+Registry: `partial` → `complete`/`failed`; failures write `error.json`.
+
+**Not available (stated in every error):** no emulator → no prediction; the pre-existing 422 codes
+are kept, with `details.emulator` / `details.empirical_fallback` reasons. Slider inputs are rejected
+(Feature 8). The empirical fallback stays unavailable: `fallback.py` has no real-terrain loader
+(`FallbackTerrain.from_rasters` is documented future work). M5's `velocity_p10` has no contract
+layer id, so it is not published. No real trained emulator exists in this checkout; tests use an
+emulator fitted in-test on M5's synthetic library.

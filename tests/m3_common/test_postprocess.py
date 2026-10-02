@@ -119,3 +119,17 @@ def test_fm_water_balance_volume_error_is_reported_as_percent(tmp_path: Path) ->
         "water_balance_laterals_in": ("time", np.array([0.0, 100.0])),
     }).to_netcdf(output / "test_his.nc")
     assert _balance_error(tmp_path) == 2.0
+
+def test_broken_mdu_is_caught_even_when_kernel_returns_zero(tmp_path: Path) -> None:
+    import shutil
+    import pytest
+    from backend.m3_dflowfm.launcher import DEFAULT_KERNEL, check_success, launch_case
+
+    if not DEFAULT_KERNEL.exists():
+        pytest.skip("D-Flow FM kernel is unavailable")
+    if not (CASE / "inputs").is_dir():
+        pytest.skip("D-Flow FM pilot inputs are not available")
+
+    case = tmp_path / "broken_case"
+    case.mkdir()
+    shutil.copytree(CASE / "inputs", case / "inputs")

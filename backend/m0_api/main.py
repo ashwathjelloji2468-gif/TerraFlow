@@ -301,14 +301,11 @@ def query_flood(body: Annotated[dict, Body(...)]) -> JSONResponse:
                      str(registry.data_dir() / body["site_id"] / "queries" / query_id / "result.json"), registry.utc_now()))
         finally:
             conn.close()
+    elif not (isinstance(body.get("scenario_id"), str) and body["scenario_id"] and body["mode"] == "scenario"):
+        # Feature 7: no registered-run scenario request -> the trained M5 emulator, if one exists.
+        payload = _query_m5(body)
     else:
         scenario_id = body.get("scenario_id")
-        if not isinstance(scenario_id, str) or not scenario_id:
-            raise HTTPException(status_code=422, detail=mocks.error(
-                "scenario_id_required", "Real scenario queries require a registered scenario_id."))
-        if body["mode"] != "scenario":
-            raise HTTPException(status_code=422, detail=mocks.error(
-                "unsupported_direct_query_mode", "Direct registered runs support scenario mode only."))
         from datetime import datetime, timezone
         import secrets
         import json
@@ -330,6 +327,62 @@ def query_flood(body: Annotated[dict, Body(...)]) -> JSONResponse:
         finally:
             conn.close()
     return _validated_json("flood_query_response.schema.json", payload)
+
+
+def _query_m5(body: dict) -> dict:
+    """POST /flood/query via a persisted M5 emulator (backend/m5_emulator/service.py). Without
+    one, nothing is predicted: the pre-Feature-7 errors are returned, now naming why M5 and the
+    empirical fallback were unavailable."""
+    from datetime import datetime, timezone
+    import json
+    import secrets
+
+    from backend.m5_emulator import service as m5_service
+
+    site_id = body["site_id"]
+    status = m5_service.emulator_status(registry.data_dir(), site_id, body["model"])
+    if not status["available"]:
+        details = {"site_id": site_id, "model": body["model"], "emulator": status,
+                   "empirical_fallback": m5_service.fallback_status(registry.data_dir(), site_id)}
+        if body.get("scenario_id"):
+            raise HTTPException(status_code=422, detail=mocks.error(
+                "unsupported_direct_query_mode",
+                f"Direct registered runs support scenario mode only, and no M5 emulator is available: {status['reason']}.",
+                details))
+        raise HTTPException(status_code=422, detail=mocks.error(
+            "scenario_id_required",
+            f"Real scenario queries require a registered scenario_id; no M5 emulator is available ({status['reason']}).",
+            details))
+    query_id = f"q_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{secrets.token_hex(3)}"
+    result_path = registry.data_dir() / site_id / "queries" / query_id / "result.json"
+    conn = registry.connect()
+    try:
+        with conn:
+            conn.execute("INSERT INTO queries (query_id,site_id,request_json,status,result_path,created_at) VALUES (?,?,?,?,?,?)",
+                         (query_id, site_id, json.dumps(body), "partial", None, registry.utc_now()))
+        try:
+            payload = m5_service.run_query(registry.data_dir(), body, query_id)
+            schemas.validate("flood_query_response.schema.json", payload)
+        except m5_service.M5InputError as exc:
+            with conn:
+                conn.execute("UPDATE queries SET status='failed' WHERE query_id=?", (query_id,))
+            raise HTTPException(status_code=422, detail=mocks.error("invalid_emulator_inputs", str(exc),
+                                {"site_id": site_id, "query_id": query_id})) from exc
+        except Exception as exc:
+            with conn:
+                conn.execute("UPDATE queries SET status='failed' WHERE query_id=?", (query_id,))
+            error_dir = result_path.parent
+            error_dir.mkdir(parents=True, exist_ok=True)
+            (error_dir / "error.json").write_text(json.dumps({"query_id": query_id, "site_id": site_id,
+                "method": "gp_emulator", "emulator": status, "error": f"{type(exc).__name__}: {exc}"}, indent=2) + "\n")
+            raise HTTPException(status_code=500, detail=mocks.error("emulator_query_failed", f"M5 query failed: {exc}",
+                                {"site_id": site_id, "query_id": query_id})) from exc
+        with conn:
+            conn.execute("UPDATE queries SET status='complete', result_path=? WHERE query_id=?",
+                         (str(result_path), query_id))
+    finally:
+        conn.close()
+    return payload
 
 
 @app.get(f"{API}/flood/{{query_id}}")
@@ -458,6 +511,13 @@ def get_compare(site_id: SiteIdPath, scenario_id: str | None = Query(default=Non
         model, held_out_run_id, sidecar_path = found
         response = api_compare.build_response(site_id, scenario_id, model, held_out_run_id, sidecar_path)
         return _validated_json("compare.schema.json", response)
+    if scenario_id:
+        # Generic <scenario>__delft3d / <scenario>__sph pair (Feature 6) with no sidecar yet:
+        # report the separate solver/postprocess/comparison/validation statuses, no metrics.
+        from backend.m4_sph.compare import status_only_response
+        pair = status_only_response(registry.data_dir(), site_id, scenario_id)
+        if pair is not None:
+            return _validated_json("compare.schema.json", pair)
     if (registry.data_dir() / site_id / "demo_ready.json").is_file():
         run_meta_path = registry.data_dir() / site_id / "runs" / f"{site_id}_demo_s001__synthetic" / "run_meta.json"
         if not run_meta_path.is_file():
@@ -868,8 +928,8 @@ def get_file(path: str) -> Response:
         sidecar = registry.data_dir() / m["site_id"] / "compare" / m["scenario_id"] / "compare.json"
         if not sidecar.is_file():
             raise HTTPException(status_code=404, detail=mocks.error("file_not_found", f"No paired comparison at '{path}'.", {"path": path}))
-        from backend.m4_sph.compare_mvp import render_mvp_depth_diff
-        return Response(content=render_mvp_depth_diff(registry.data_dir(), m["scenario_id"]), media_type="image/png")
+        from backend.m4_sph.compare import render_depth_diff
+        return Response(content=render_depth_diff(registry.data_dir(), m["site_id"], m["scenario_id"]), media_type="image/png")
 
     m = SCENE_ASSET_PATH_RE.match(path)
     if m is not None:

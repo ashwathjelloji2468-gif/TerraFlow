@@ -46,7 +46,7 @@ import rasterio
 
 from backend.shared.grid import FLOAT_NODATA, CanonicalGrid, write_grid_raster
 
-from . import gauges, measuretool, surfaces
+from . import gauges, measuretool, solver_log, surfaces
 from .generator import probes_in_nearfield
 from .settings import SphSettings, load_sph_settings
 from backend.shared.probes import load_probes
@@ -155,26 +155,19 @@ def compute_summary_rasters(
     }
 
 
-_PARTICLES_RE = re.compile(r"Total particles:\s*([\d,]+)")
-_VERSION_RE = re.compile(r"DualSPHysics(?:5\.4)?\s+v?([\d.]+)")
 
 
 def _parse_solver_log(log_text: str | None) -> dict:
     """Best-effort facts from a GenCase/solver log, kept `None` (contract rule 3: never invent a
     fact) rather than guessed when the log wasn't captured or doesn't contain them."""
-    if not log_text:
-        return {"particle_count": None, "solver_version": None}
-    particles_match = _PARTICLES_RE.search(log_text)
-    version_match = _VERSION_RE.search(log_text)
-    return {
-        "particle_count": int(particles_match.group(1).replace(",", "")) if particles_match else None,
-        "solver_version": version_match.group(1) if version_match else None,
-    }
+    facts = solver_log.parse_log(log_text)
+    return {"particle_count": facts["total_particles"], "solver_version": facts["solver_version"], "facts": facts}
 
 
 def build_run_meta(
     case_meta: dict, grid_near: CanonicalGrid, sim_duration_s: float, depth_capped: bool,
-    log_text: str | None = None, started_at: str | None = None,
+    log_text: str | None = None, started_at: str | None = None, execution: dict | None = None,
+    max_excluded_particle_fraction: float | None = None,
 ) -> dict:
     """`run_meta.json` (contract §4.4), for the run `case_meta` (`generator.py`'s `case_meta.json`)
     describes. Facts this stage can't establish without a captured solver log --
@@ -189,7 +182,13 @@ def build_run_meta(
             warnings.append("particle_count is the pre-run VRAM estimate (no solver log captured), not GenCase's actual count")
     if log_facts["solver_version"] is None:
         warnings.append("solver_version NOT STATED -- no solver log captured for this run")
-    warnings.append("peak_vram_mb not measured -- nvidia-smi logging during the run isn't implemented yet")
+    execution = execution or {}
+    peak_vram_mb = execution.get("peak_vram_mb")
+    wall_time_s = execution.get("wall_time_s")
+    if peak_vram_mb is None:
+        warnings.append("peak_vram_mb not measured -- no nvidia-smi samples were recorded for this run")
+    if wall_time_s is None:
+        warnings.append("wall_time_s not recorded -- no launcher execution record for this run")
     warnings.append("mass_balance_error_pct not computed for SPH runs yet")
 
     caveats = list(case_meta.get("caveats", []))
@@ -205,8 +204,8 @@ def build_run_meta(
         "status": "postprocessed",
         "solver_version": log_facts["solver_version"],
         "resolution_m": grid_near.cell_size_m, "dp_m": case_meta["dp_m"],
-        "particle_count": particle_count, "peak_vram_mb": None,
-        "sim_duration_s": sim_duration_s, "wall_time_s": None,
+        "particle_count": particle_count, "peak_vram_mb": peak_vram_mb,
+        "sim_duration_s": sim_duration_s, "wall_time_s": wall_time_s,
         "mass_balance_error_pct": None,
         "thresholds": {"extent_m": EXTENT_THRESHOLD_M, "arrival_m": ARRIVAL_THRESHOLD_M},
         "hydrographs": [],  # hydrograph is consumed in-process (contract §4.2); no CSV artifact
@@ -215,13 +214,17 @@ def build_run_meta(
         "caveats": caveats,
         "has_placeholders": case_meta.get("has_placeholders", False),
         "placeholder_fields": case_meta.get("placeholder_fields", []),
-        "started_at": now, "finished_at": now,
+        "started_at": execution.get("started_at", now), "finished_at": execution.get("finished_at", now),
+        "solver_log_facts": log_facts["facts"],
+        **({"particle_retention": solver_log.particle_retention(log_facts["facts"], max_excluded_particle_fraction)}
+           if max_excluded_particle_fraction is not None else {}),
     }
 
 
 def postprocess_run(
     run_dir: str | Path, terrain_dir: str | Path, dirdata: str | Path,
     settings: SphSettings | None = None, binaries_dir: str | None = None,
+    execution: dict | None = None,
 ) -> dict:
     """Full contract §4.4 post-processing for a completed near-field run: `summary_nearfield/`,
     `surfaces/`, `timeseries.csv`, `run_meta.json`, all under `run_dir`. Returns the written
@@ -269,14 +272,16 @@ def postprocess_run(
     log_path = run_dir / "raw" / "log.txt"
     log_text = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else None
     sim_duration_s = float(tau_s[-1] - tau_s[0]) if tau_s.size else 0.0
-    run_meta = build_run_meta(case_meta, grid_near, sim_duration_s, rasters["depth_capped"], log_text)
+    run_meta = build_run_meta(case_meta, grid_near, sim_duration_s, rasters["depth_capped"], log_text,
+                              execution=execution,
+                              max_excluded_particle_fraction=settings.max_excluded_particle_fraction)
     if gauges_missing:
         run_meta["warnings"].append(
             "probe timeseries unavailable; solver did not emit configured gauge CSVs: "
             + ", ".join(gauges_missing)
         )
         run_meta["caveats"].append("sph_probe_timeseries_unavailable")
-    if log_text and re.search(r"More than 100% of current fluid particles were excluded", log_text):
+    if log_text and solver_log.EXCLUSION_WARNING in log_text:
         run_meta["warnings"].append(
             "DualSPHysics reported more than 100% of current fluid particles excluded in a PART output; "
             "depth and velocity artifacts require physical review"

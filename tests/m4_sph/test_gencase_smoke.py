@@ -37,7 +37,7 @@ def test_gencase_accepts_the_pilot_case(tmp_path):
 
 
 def test_gencase_accepts_a_real_nearfield_case(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, tmp_path):
-    settings = load_sph_settings(dp_m=10.0)
+    settings = load_sph_settings(dp_m=2.0, t_end_s=60.0)
     spec, case_meta = build_nearfield_case(
         "synth", "synth_s001", synth_hydrograph_params, settings,
         data_dir=synth_terrain_dir.parent.parent, sites_dir=synth_sites_dir,

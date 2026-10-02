@@ -32,6 +32,10 @@ class SphSettings:
     velocity_levels: int = 3
     surface_interval_s: float = 300.0
     postprocess_row_chunk: int = 200
+    max_excluded_particle_fraction: float = 0.05
+    routed_section_width_m: float = 300.0
+    inlet_terrain_clearance_dp: float = 1.0
+    min_inlet_height_dp: float = 3.0
 
     def __post_init__(self):
         if not (isinstance(self.dp_m, (int, float)) and self.dp_m > 0) and self.dp_m != "auto":
@@ -48,6 +52,14 @@ class SphSettings:
             raise ValueError(f"velocity_levels must be >= 1, got {self.velocity_levels}")
         if self.surface_interval_s <= 0:
             raise ValueError(f"surface_interval_s must be positive, got {self.surface_interval_s}")
+        if not 0.0 <= self.max_excluded_particle_fraction < 1.0:
+            raise ValueError(f"max_excluded_particle_fraction must be in [0, 1), got {self.max_excluded_particle_fraction}")
+        if self.inlet_terrain_clearance_dp < 1.0:
+            raise ValueError(f"inlet_terrain_clearance_dp must be >= 1 (one particle spacing), got {self.inlet_terrain_clearance_dp}")
+        if self.min_inlet_height_dp <= 0:
+            raise ValueError(f"min_inlet_height_dp must be positive, got {self.min_inlet_height_dp}")
+        if self.routed_section_width_m <= 0:
+            raise ValueError(f"routed_section_width_m must be positive, got {self.routed_section_width_m}")
         if self.postprocess_row_chunk < 1:
             raise ValueError(f"postprocess_row_chunk must be >= 1, got {self.postprocess_row_chunk}")
 
