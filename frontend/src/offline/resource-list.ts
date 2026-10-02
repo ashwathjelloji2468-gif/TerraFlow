@@ -38,6 +38,8 @@ export function collectResourceUrls(bundle: OfflineBundle): string[] {
   add(`flood/${queryId}/extent.geojson`);
   add(`impact/${queryId}`);
   add(`compare/${bundle.siteId}`);
+  if (bundle.compare?.scenario_id) add(`compare/${bundle.siteId}?scenario_id=${encodeURIComponent(bundle.compare.scenario_id)}`);
+  for (const layer of [...(bundle.compare?.sph_vs_delft3d.layers ?? []), ...(bundle.compare?.emulator_vs_physics.layers ?? [])]) if (layer.available) add(layer.url);
   add(`validation/${bundle.siteId}`);
   for (const eventId of bundle.validation?.events ?? []) add(`validation/${bundle.siteId}?event=${encodeURIComponent(eventId)}`);
   add(`gee/${bundle.siteId}`);

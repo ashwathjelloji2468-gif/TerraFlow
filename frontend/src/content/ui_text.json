@@ -177,7 +177,13 @@
     "heldOut": "Held-out run",
     "whenToUse": "Use SPH for near-field surge details and Delft3D for larger downstream domains, subject to matching inputs and validation.",
     "demoMode": "DEMO MODE",
-    "placeholders": "PLACEHOLDER data"
+    "placeholders": "PLACEHOLDER data",
+    "scenarioSelect": "Scenario",
+    "siteDefault": "Site default comparison",
+    "scenarioSelectNote": "Scenarios from the persisted design. Not every scenario has a physics comparison.",
+    "noDesign": "No persisted scenario design for this site; only the site default comparison is available.",
+    "layersTitle": "Comparison layers",
+    "noLayerDetail": "No comparison raster artifact exists for this scenario."
   },
   "monitoring": {
     "noObservedExtent": "No digitized event extent available",
@@ -280,7 +286,13 @@
     "site": "Site",
     "method": "Method",
     "confidence": "Overall confidence",
-    "provenance": "Provenance"
+    "provenance": "Provenance",
+    "scenario": "Scenario",
+    "impact": "Impact",
+    "comparison": "Model comparison",
+    "caveats": "Caveats",
+    "contains": "This export contains",
+    "downloaded": "Downloaded"
   },
   "onboarding": {
     "missingInputs": "Onboarding could not be submitted.",
@@ -373,5 +385,29 @@
     "noDesignTitle": "No scenario design yet",
     "noDesign": "The design is produced by the onboarding job's design stage once breach parameters are available.",
     "hydrographLabel": "Breach hydrograph, discharge against time"
+  },
+  "dashboard": {
+    "query": "Query",
+    "noQuery": "No query yet",
+    "overview": "Current decision overview",
+    "zones": "Warning POIs HIGH / POSSIBLE",
+    "zonesUnit": "POIs",
+    "confidence": "Overall confidence",
+    "scenarios": "Scenarios in persisted design",
+    "architecture": "Architecture / process diagram — not live system status.",
+    "impactUnavailable": "Impact unavailable",
+    "impactUnavailableDetail": "No impact response exists for the current query.",
+    "impactFrom": "From impact response",
+    "monitoring": "Satellite monitoring",
+    "latestObservation": "Latest lake observation",
+    "lakeArea": "Lake area",
+    "rainfall": "Rainfall estimate",
+    "openMonitoring": "Open Monitoring",
+    "validation": "Validation",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "emulatorValidation": "Emulator validation (LOOCV)",
+    "historicalValidation": "Historical validation",
+    "observedData": "Observed extent"
   }
 }

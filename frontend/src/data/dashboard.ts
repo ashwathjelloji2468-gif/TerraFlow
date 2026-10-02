@@ -1,0 +1,121 @@
+// Feature 11: pure helpers that turn canonical backend responses (FloodQuery, Impact, Compare,
+// GeeLayers, Validation) into dashboard / compare / export display state. Nothing here computes a
+// flood number: every value is read from a response, and a missing value is `null` -> "Unavailable",
+// never 0. Re-exported through src/data/source.ts (the frontend data seam).
+import type {CompareResponse, Estimate, FloodQueryResponse, GeeLayers, HistoricalValidationResponse, ImpactResponse, ValidationResponse} from './api';
+
+export const UNAVAILABLE = 'Unavailable';
+
+export type MethodInfo = {label: string; kind: 'emulator_prediction' | 'solver_run' | 'fallback' | 'none'; detail: string};
+export function methodInfo(q: FloodQueryResponse | null): MethodInfo {
+  if (!q) return {label: 'No query yet', kind: 'none', detail: 'Run a query to see results.'};
+  switch (q.method) {
+    case 'gp_emulator': return {label: 'Emulator prediction (M5)', kind: 'emulator_prediction', detail: 'Gaussian-process emulator prediction, not a solver run.'};
+    case 'delft3d_direct': return {label: 'D-Flow FM solver run', kind: 'solver_run', detail: 'Real D-Flow FM output · MVP reconstructed forcing · not scientifically validated.'};
+    case 'sph_direct': return {label: 'DualSPHysics solver run', kind: 'solver_run', detail: 'Real DualSPHysics output.'};
+    case 'empirical_fallback': return {label: 'Empirical fallback', kind: 'fallback', detail: 'Empirical breach + HAND routing; no trained emulator.'};
+    default: return {label: String(q.method), kind: 'none', detail: ''};
+  }
+}
+
+/** A finite estimate value, else null (never a substituted zero). */
+export function estimateValue(e: Estimate | null | undefined, scale = 1): number | null {
+  const v = e?.value;
+  return typeof v === 'number' && Number.isFinite(v) ? v * scale : null;
+}
+
+export type DashboardMetric = {key: string; label: string; value: number | null; low: number | null; high: number | null; unit: string; source: string};
+const range = (e: Estimate | null | undefined, scale = 1) => ({
+  low: typeof e?.low === 'number' && Number.isFinite(e.low) ? e.low * scale : null,
+  high: typeof e?.high === 'number' && Number.isFinite(e.high) ? e.high * scale : null,
+});
+
+/** Dashboard metric cards, strictly from FloodQueryResponse + ImpactResponse. */
+export function dashboardMetrics(q: FloodQueryResponse | null, impact: ImpactResponse | null): DashboardMetric[] {
+  const s = q?.summary;
+  const flood = q ? `FloodQuery ${q.query_id}` : UNAVAILABLE;
+  const imp = impact ? `Impact ${impact.query_id}` : UNAVAILABLE;
+  const earliest = impact?.warning_table?.map(r => estimateValue(r.arrival_s)).filter((v): v is number => v !== null);
+  const firstArrival = earliest && earliest.length ? Math.min(...earliest) : estimateValue(s?.first_arrival?.arrival_s);
+  return [
+    {key: 'area', label: 'Inundated area', value: estimateValue(s?.inundated_area_m2, 1e-6), ...range(s?.inundated_area_m2, 1e-6), unit: 'km²', source: flood},
+    {key: 'depth', label: 'Maximum depth', value: estimateValue(s?.max_depth_m), ...range(s?.max_depth_m), unit: 'm', source: flood},
+    {key: 'velocity', label: 'Maximum velocity', value: estimateValue(s?.max_velocity_ms), ...range(s?.max_velocity_ms), unit: 'm/s', source: flood},
+    {key: 'arrival', label: 'Earliest arrival', value: firstArrival === null || firstArrival === undefined ? null : firstArrival / 60, low: null, high: null, unit: 'min', source: earliest && earliest.length ? imp : flood},
+    {key: 'population', label: 'Affected population', value: estimateValue(impact?.population_persons), ...range(impact?.population_persons), unit: 'people', source: imp},
+  ];
+}
+
+export type ZoneCounts = {available: boolean; high: number | null; possible: number | null; pois_high: number; pois_possible: number};
+export function zoneCounts(impact: ImpactResponse | null): ZoneCounts {
+  if (!impact) return {available: false, high: null, possible: null, pois_high: 0, pois_possible: 0};
+  return {available: true, high: impact.assets?.buildings?.high ?? null, possible: impact.assets?.buildings?.possible ?? null,
+    pois_high: impact.warning_table.filter(r => r.zone === 'high').length,
+    pois_possible: impact.warning_table.filter(r => r.zone === 'possible').length};
+}
+
+export type GeeStatus = {label: 'LIVE' | 'CACHE' | 'FALLBACK' | 'NONE' | 'UNAVAILABLE'; latestObservation: string | null; lake: boolean; rainfall: boolean; partial: boolean; fetchedAt: string | null};
+export function geeStatus(gee: GeeLayers | null): GeeStatus {
+  if (!gee) return {label: 'UNAVAILABLE', latestObservation: null, lake: false, rainfall: false, partial: false, fetchedAt: null};
+  const lakeRows = gee.lake_area_series.filter(r => r.area_m2 !== null);
+  const latest = String(gee.lake_latest.features[0]?.properties?.date ?? lakeRows.at(-1)?.date ?? '') || null;
+  const label = gee.data_available === false ? (gee.source === 'screenshot_fallback' ? 'FALLBACK' : 'NONE')
+    : gee.source === 'live' ? 'LIVE' : gee.source === 'screenshot_fallback' ? 'FALLBACK' : 'CACHE';
+  return {label, latestObservation: latest, lake: lakeRows.length > 0, rainfall: gee.rainfall.length > 0,
+    partial: !!gee.partial, fetchedAt: gee.fetched_at || null};
+}
+
+export type ValidationStatus = {emulator: boolean; historical: boolean; observed: boolean; note: string};
+export function validationStatus(v: ValidationResponse | null, h: HistoricalValidationResponse | null): ValidationStatus {
+  const emulator = !!v && v.validation_available !== false && !v.synthetic_demo && v.n_runs > 0 && v.per_run.length > 0;
+  const historical = !!h && (h.provenance as {validation_available?: boolean})?.validation_available === true;
+  const observed = !!h && h.observed?.available === true;
+  return {emulator, historical, observed,
+    note: 'Model-to-model comparison (SPH vs D-Flow FM, emulator vs solver, GP vs linear) is not field validation.'};
+}
+
+export type CompareOption = {scenario_id: string; kind: string; label: string};
+/** Scenario selector options from the persisted design rows (GET /sites/{id}/design). */
+export function compareScenarioOptions(rows: Array<{scenario_id: string; kind: string}> | null | undefined): CompareOption[] {
+  const seen = new Set<string>();
+  return (rows ?? []).filter(r => r.scenario_id && !seen.has(r.scenario_id) && seen.add(r.scenario_id))
+    .map(r => ({scenario_id: r.scenario_id, kind: r.kind, label: `${r.scenario_id} · ${r.kind}`}));
+}
+
+export type CompareSection = {available: boolean; reason: string | null; runIds: string[]; layers: CompareResponse['emulator_vs_physics']['layers']};
+export function compareSections(c: CompareResponse | null): {sph: CompareSection; emulator: CompareSection; gpLinear: boolean} {
+  const none: CompareSection = {available: false, reason: null, runIds: [], layers: []};
+  if (!c) return {sph: none, emulator: none, gpLinear: false};
+  return {
+    sph: {available: c.sph_vs_delft3d.available && (!c.sph_vs_delft3d.status || c.sph_vs_delft3d.status.comparison_status === 'SUCCEEDED'),
+      reason: c.sph_vs_delft3d.unavailable_reason ?? c.sph_vs_delft3d.status?.comparison_reason ?? null,
+      runIds: c.sph_vs_delft3d.run_ids, layers: c.sph_vs_delft3d.layers.filter(l => l.available)},
+    emulator: {available: c.emulator_vs_physics.available, reason: c.emulator_vs_physics.unavailable_reason ?? null,
+      runIds: c.emulator_vs_physics.held_out_run_id ? [c.emulator_vs_physics.held_out_run_id] : [],
+      layers: c.emulator_vs_physics.layers.filter(l => l.available)},
+    gpLinear: Object.keys(c.gp_vs_linear).length > 0,
+  };
+}
+
+export type ExportFormat = 'shp' | 'kml' | 'geojson' | 'pdf';
+/** What each export of THIS query will actually contain, from the responses, not generic claims. */
+export function exportContents(q: FloodQueryResponse | null, impact: ImpactResponse | null): Record<ExportFormat, string[]> {
+  const out: Record<ExportFormat, string[]> = {shp: [], kml: [], geojson: [], pdf: []};
+  if (!q) return out;
+  const hz = impact?.hazard_layers ?? {};
+  const has = (k: string) => !!hz[k]?.path;
+  const vec = ['flood extent / zone polygons'];
+  if (has('depth_classes')) vec.push('depth-class polygons');
+  if (has('isochrones')) vec.push('arrival isochrones');
+  if (impact?.warning_table.length) vec.push(`${impact.warning_table.length} warning POIs`);
+  out.shp = [...vec]; out.kml = [...vec]; out.geojson = [...vec];
+  out.pdf = [`${methodInfo(q).label} report`, 'summary estimates', impact ? 'impact + warning table' : 'impact unavailable', 'caveats + provenance'];
+  return out;
+}
+
+/** Safe filename from a Content-Disposition header, else a deterministic fallback. */
+export function exportFilename(disposition: string | null, siteId: string, queryId: string, format: ExportFormat): string {
+  const m = disposition?.match(/filename="?([^";]+)"?/i);
+  const raw = m?.[1] ?? `${siteId}_${queryId}.${format === 'shp' ? 'zip' : format}`;
+  return raw.replace(/[^A-Za-z0-9._-]/g, '_');
+}

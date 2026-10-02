@@ -90,3 +90,29 @@ def render_diff_layer(sidecar_path: Path, held_out_run_id: str) -> bytes:
     source `.tif` (same one-render-per-artifact rule as `rendering.render_and_cache`)."""
     tif_path = sidecar_path.parent / f"{held_out_run_id}__depth_diff.tif"
     return rendering.render_and_cache(tif_path, DIFF_LAYER_ID)
+
+
+def unavailable_response(site_id: str, scenario_id: str | None) -> dict:
+    """Honest `CompareResponse` when no comparison artifact of any kind exists for this site /
+    scenario (Feature 11). Replaces the contract example fallback, whose `available: true`,
+    all-zero metrics and fictitious run IDs read as a real comparison on the Compare page. No
+    metrics, no run IDs, no layers; `unavailable_reason` says what is missing."""
+    sid = scenario_id or ""
+    if scenario_id:
+        sph = _sph_vs_delft3d_unavailable(site_id, scenario_id)
+        emu_reason = (f"No emulator LOOCV sidecar for held-out run '{scenario_id}__delft3d' or "
+                      f"'{scenario_id}__sph' (written by M5 validation).")
+    else:
+        sph = {"available": False, "domain": "nearfield", "time_window_s": 0, "metrics": {},
+               "probes": [], "layers": [], "run_ids": [],
+               "unavailable_reason": "No scenario selected and no default comparison artifact exists for this site."}
+        emu_reason = "No scenario selected; an emulator-vs-physics comparison needs a held-out scenario."
+    return {
+        "site_id": site_id, "scenario_id": sid,
+        "sph_vs_delft3d": sph,
+        "emulator_vs_physics": {"available": False, "held_out_run_id": None, "metrics": {}, "layers": [],
+                                "unavailable_reason": emu_reason},
+        "gp_vs_linear": {}, "when_to_use_key": "comparison_unavailable",
+        "caveats": [{"id": "comparison_unavailable", "severity": "warning", "text_key": "comparison_unavailable"}],
+        "comparison_available": False,
+    }
