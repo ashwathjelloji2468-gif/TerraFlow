@@ -79,7 +79,10 @@
       "literature_comparison_only": "Point values below are compared with other published model reconstructions, not with direct field observations.",
       "emulator_not_validated": "This emulator has no LOOCV validation report; its skill is unknown.",
       "demo_mode": "Demo-mode emulator: trained on a short demo library, confidence LOW.",
-      "outside_trained_range": "Inputs are outside the emulator's training range; this is extrapolation."
+      "outside_trained_range": "Inputs are outside the emulator's training range; this is extrapolation.",
+      "scenario_emulator_probability": "Scenario mode: zones use the emulator's own uncertainty for one scenario, not breach-parameter uncertainty.",
+      "query_placeholders": "The flood query used placeholder site inputs; impact numbers inherit that.",
+      "loss_placeholder": "Monetary loss is unavailable because a conversion factor is still a placeholder."
     },
     "unknownCaveat": "This result includes a contract caveat.",
     "whatifTitle": "Instant what-if (emulator)",
@@ -125,7 +128,16 @@
     "assetClass": "Asset class",
     "lossByClassNone": "No priced asset class yet",
     "lossMethod": "JRC global flood depth-damage functions (Huizinga et al. 2017)",
-    "lossAssumptions": "Assumptions"
+    "lossAssumptions": "Assumptions",
+    "populationRange": "About {low}–{high} people at risk (HIGH – HIGH+POSSIBLE)",
+    "populationSource": "Population source",
+    "zoneExplain": "HIGH: P(flooded) ≥ {high}. POSSIBLE: {possible} ≤ P < {high}. Basis: {basis}.",
+    "facilities": "Facilities (HIGH · POSSIBLE)",
+    "leadTime": "Lead time",
+    "depthClass": "Depth class",
+    "beforeDetection": "arrives before detection",
+    "hazardLayers": "Derived layers",
+    "unavailable": "unavailable"
   },
   "comparison": {
     "loading": "Loading model comparison…",

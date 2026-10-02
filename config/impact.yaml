@@ -76,3 +76,22 @@ loss:
   # there is no area to apply a per-m2 damage value to without inventing one
   # (CLAUDE.md rule 3); exposure/ also has no cropland layer for agriculture. Both
   # are named in loss_inr.assumptions so this scope limit is never silent.
+
+# M6 impact product settings (docs/impact_outputs.md header block; Feature 9). Read by
+# backend/m6_impact/impact.py and backend/m6_impact/exports.py -- no copy of these lives in code.
+impact:
+  depth_classes_m: [0.1, 0.3, 1.0, 2.0, 5.0]           # class lower edges; below the first = not shown
+  depth_class_labels: [wet, low, moderate, high, extreme]
+  arrival_bands_min: [15, 30, 60, 120, 180, 360]      # last band is "> 360"
+  arrival_percentile: 10                              # early arrival used for isochrones
+  detection_delay_min: 10                             # lead time after detection = arrival - this
+  zone_high_p: 0.5                                    # p_inundation >= this -> HIGH
+  zone_possible_p: 0.1                                # >= this and < high -> POSSIBLE
+  population_sig_figs: 2
+  population_floor: 50                                # counts below this are shown as "< 50"
+  # D x V hazard edges (m^2/s). docs/impact_outputs.md §1.1 marks them "VERIFY and cite a source";
+  # no source is held, so no D·V layer is produced while status is unverified.
+  dv_hazard_m2s:
+    value: [0.5, 1.0, 3.0]
+    status: unverified
+    source: null

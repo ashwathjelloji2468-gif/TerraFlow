@@ -34,27 +34,13 @@ from shapely.geometry import Point, shape
 
 TERRAFLOW_BRAND = "TerraFlow — GLOF / Dam-Break Decision Support (SIH26 PS-26161)"
 
-# docs/impact_outputs.md §1 "Depth classes (maximum depth)" — edges the team already settled on;
-# not a new coefficient, just applied here to label the one extent polygon a direct run produces.
-DEPTH_CLASS_EDGES = [
-    (0.1, "wet"),
-    (0.3, "low"),
-    (1.0, "moderate"),
-    (2.0, "high"),
-    (5.0, "extreme"),
-]
-
-
 def depth_class_label(max_depth_m: float | None) -> str | None:
-    """Bucket a maximum depth into `docs/impact_outputs.md` §1's classes. `None` (no known
+    """Bucket a maximum depth into the configured depth classes (`config/impact.yaml`
+    `impact.depth_classes_m` / `depth_class_labels`, shared with `impact.py`). `None` (no known
     depth) stays `None` rather than a guessed class."""
-    if max_depth_m is None:
-        return None
-    label = None
-    for edge, name in DEPTH_CLASS_EDGES:
-        if max_depth_m >= edge:
-            label = name
-    return label
+    from backend.m6_impact.impact import depth_class_label as _label, load_impact_settings
+
+    return _label(max_depth_m, load_impact_settings())
 
 
 # Human labels for the caveat ids this export route can see today (`backend/m0_api/real_query.py`,
@@ -108,6 +94,7 @@ def build_shapefile_zip(
     summary: dict,
     warning_table: list[dict] | None = None,
     poi_locations: dict[str, tuple[float, float]] | None = None,
+    extra_layers: dict[str, dict | None] | None = None,
 ) -> bytes:
     """A real zip of ESRI Shapefile layers: `extent` (the flood extent polygon(s)) and, when POI
     locations are available, `pois_warning` (points, one per `warning_table` entry). CRS is
@@ -121,7 +108,7 @@ def build_shapefile_zip(
     for feature in extent_geojson.get("features", []):
         extent_rows.append({
             "geometry": shape(feature["geometry"]),
-            "zone": zone,
+            "zone": (feature.get("properties") or {}).get("zone") or zone,
             "dep_p50": max_depth,
             "vel_p50": max_velocity,
             "dep_class": depth_class_label(max_depth),
@@ -178,12 +165,25 @@ def build_shapefile_zip(
                 for component in sorted(tmp_path.glob("pois_warning.*")):
                     archive.write(component, component.name)
                 readme_lines.append("  pois_warning.*  — points of interest from the warning table.")
-            readme_lines += [
-                "",
-                "Not included: depth_classes / isochrones vector layers. Their thresholds "
-                "(docs/impact_outputs.md 'depth_classes_m' / 'arrival_bands_min') are still a "
-                "team draft, not yet in config/, so this export does not guess them.",
-            ]
+            for layer_name, fc in (extra_layers or {}).items():
+                rows = [{"geometry": shape(f["geometry"]),
+                         **{k[:10]: _dbf_safe(v) for k, v in (f.get("properties") or {}).items()}}
+                        for f in (fc or {}).get("features", [])]
+                if rows:
+                    gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326").to_file(
+                        tmp_path / f"{layer_name}.shp", driver="ESRI Shapefile", index=False)
+                    for component in sorted(tmp_path.glob(f"{layer_name}.*")):
+                        archive.write(component, component.name)
+                    readme_lines.append(f"  {layer_name}.*  — derived from this query's persisted rasters "
+                                        "(config/impact.yaml thresholds).")
+                else:
+                    readme_lines.append(f"  {layer_name}: not included — no features for this query.")
+            if not extra_layers:
+                readme_lines += [
+                    "",
+                    "Not included: depth_classes / isochrones vector layers -- only built for emulator "
+                    "(M5) impact results, from their persisted rasters.",
+                ]
             archive.writestr("README.txt", "\n".join(readme_lines) + "\n")
     return buf.getvalue()
 
@@ -357,6 +357,14 @@ def build_pdf_report(
         assets = impact.get("assets") or {}
         loss = impact.get("loss_inr") or {}
         lines.append(f"  Population in flood path: {_fmt_estimate(population)}")
+        display = impact.get("population_display") or {}
+        if display:
+            lines.append(f"    about {display.get('low')}–{display.get('high')} people (HIGH – HIGH+POSSIBLE; "
+                         f"{display.get('source') or 'population raster'})")
+        zt = impact.get("zone_thresholds") or {}
+        if zt:
+            lines.append(f"  Zones: HIGH p>={zt.get('high_p')}, POSSIBLE p>={zt.get('possible_p')} "
+                         f"({zt.get('probability_basis')})")
         for asset_name, counts in (assets or {}).items():
             if isinstance(counts, dict):
                 lines.append(f"  {asset_name}: HIGH={counts.get('high')}  POSSIBLE={counts.get('possible')}")
@@ -368,9 +376,12 @@ def build_pdf_report(
         for entry in (impact.get("warning_table") or [])[:10]:
             arrival = entry.get("arrival_s") or {}
             depth = entry.get("depth_m") or {}
+            lead = entry.get("lead_time_s")
             lines.append(
                 f"  {entry.get('name')} [{entry.get('zone')}] — arrival {_fmt_estimate(arrival)}, "
                 f"depth {_fmt_estimate(depth)}"
+                + (f" ({entry['depth_class']})" if entry.get("depth_class") else "")
+                + (f", lead time {_fmt_estimate(lead)}" if lead else "")
             )
         if not impact.get("warning_table"):
             lines.append("  (no points of interest in a HIGH/POSSIBLE zone for this run)")

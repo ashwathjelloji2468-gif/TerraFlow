@@ -3040,3 +3040,22 @@ and mapped exact inputs (plus `basis` on `resolved_inputs`), the uncertainty met
 basis, and caches loaded emulators keyed on file size/mtime. Rapid-query panel gained two slider
 positions + "Run what-if" (unknown-breach, other inputs sampled), showing the API's own error text.
 No solver, training or fallback runs during a query. No real trained emulator exists in this checkout.
+
+## 2026-10-02 — Feature 9: M5 → M6 impact, arrival time, loss/damage
+
+**Built:** `backend/m6_impact/impact.py` (reads only a persisted `gp_emulator` query's layers + stored
+exposure): HIGH/POSSIBLE zones from `p_inundation` with `config/impact.yaml impact.zone_*_p` (0.5 / 0.1,
+not M5's own 0.9 `extent_class`); population range on the exact query grid (low = HIGH, high = value =
+HIGH+POSSIBLE, display 2 s.f., "< 50" floor, by arrival band); assets by zone (building centroids, road
+intersections, facility points); warning table sampled at M1 POI cells (arrival/depth P10/P50/P90, velocity
+P50 + P90 only, lead time = arrival − 10 min floored at 0 with `arrives_before_detection`, depth class);
+`impact_zones.geojson`, `depth_classes.geojson`, P10 `isochrones.geojson`; loss via the existing
+`loss.estimate_loss` on depth P10/P50/P90. `GET /impact/{id}` and `GET /export/{id}` use it for M5 queries
+(zones/hazard layers in GeoJSON, SHP, KML, PDF); `sph_direct` impact is an explicit 404 `impact_unavailable`;
+the direct Delft3D path is unchanged. `exports.depth_class_label` now reads the same config. Impact page
+shows the population range, zone rule, facilities, lead time and depth class. All additions to
+`impact.json` are optional fields allowed by the schema (no contract change).
+
+**Not done / limits:** no D·V layer (unverified thresholds); no low-confidence downgrade (no per-cell
+confidence); scenario-mode zones are emulator-only probability; no breach pair; no real Teesta emulator exists,
+so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passed, 23 skipped.
