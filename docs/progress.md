@@ -3013,3 +3013,20 @@ centre bed so part sits under sloped terrain; `inputtreatment=2` self-removal). 
 the first (synthetic case: bed above inlet bottom over 32% of the width, 3% of area buried); run
 `python -m backend.m4_sph.exclusion_diagnosis <run_dir> <terrain_dir>` on the retained a02/a03 data
 before changing inlet geometry. No Teesta SPH rerun; comparison stays gated.
+
+## 2026-10-02 — Feature 7: M5 emulator wired into POST /flood/query
+
+**Built:** `backend/m5_emulator/service.py` (emulator detection from the persisted manifest + PCA/GP
+files, `FloodEmulator.load`, exact-input resolution, POI→cell mapping inside the trained corridor,
+LOOCV grades from `validation/loocv.json` when present, `query.get_flood` in scenario or
+unknown-breach mode, GeoTIFF layers + extent.geojson + result.json under `queries/<query_id>/`,
+provenance from the manifest). `main.py` routes requests that are not a registered-run scenario
+query to it; demo-ready sites and registered `scenario_id` + `scenario` queries are unchanged.
+Registry: `partial` → `complete`/`failed`; failures write `error.json`.
+
+**Not available (stated in every error):** no emulator → no prediction; the pre-existing 422 codes
+are kept, with `details.emulator` / `details.empirical_fallback` reasons. Slider inputs are rejected
+(Feature 8). The empirical fallback stays unavailable: `fallback.py` has no real-terrain loader
+(`FallbackTerrain.from_rasters` is documented future work). M5's `velocity_p10` has no contract
+layer id, so it is not published. No real trained emulator exists in this checkout; tests use an
+emulator fitted in-test on M5's synthetic library.
