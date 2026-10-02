@@ -3030,3 +3030,13 @@ are kept, with `details.emulator` / `details.empirical_fallback` reasons. Slider
 (`FallbackTerrain.from_rasters` is documented future work). M5's `velocity_p10` has no contract
 layer id, so it is not published. No real trained emulator exists in this checkout; tests use an
 emulator fitted in-test on M5's synthetic library.
+
+## 2026-10-02 — Feature 8: instant what-if (slider inputs → persisted M5 emulator)
+
+**Built:** `backend/m5_emulator/sliders.py` (contract §3.3 mapping: linear, or log on ln(value), over
+the persisted emulator's own training box; mapping from site config `emulator_inputs[].slider` when
+set, else from the emulator's input scaling). `service.py` now maps sliders, records slider positions
+and mapped exact inputs (plus `basis` on `resolved_inputs`), the uncertainty method and confidence
+basis, and caches loaded emulators keyed on file size/mtime. Rapid-query panel gained two slider
+positions + "Run what-if" (unknown-breach, other inputs sampled), showing the API's own error text.
+No solver, training or fallback runs during a query. No real trained emulator exists in this checkout.
