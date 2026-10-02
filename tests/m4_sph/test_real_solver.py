@@ -6,8 +6,8 @@ with `pytest -rs`) without the binaries or an NVIDIA GPU. On the team Linux/WSL 
 
     DSPH_BIN_DIR=<DualSPHysics_v5.4>/bin/linux pytest -rs -s tests/m4_sph/test_real_solver.py
 
-Run settings are test choices, not physical values: dp 2 m keeps the case small (GenCase accepts
-this case at dp 10 m in test_gencase_smoke.py), 60 s of simulated inflow, PART output every 5 s.
+Run settings are test choices, not physical values: dp 2 m keeps the case small (and leaves room for the
+inlet's 1-dp terrain clearance and 3-dp minimum height), 60 s of simulated inflow, PART output every 5 s.
 """
 from __future__ import annotations
 

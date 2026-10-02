@@ -95,6 +95,15 @@ class InletGeometry:
     area_m2: float
     bed_z_m: float
     zsurf_m: float
+    local_terrain_max_z_m: float | None = None
+    clearance_m: float = 0.0
+    effective_bottom_z_m: float | None = None
+    effective_height_m: float | None = None
+
+
+class InletClearanceError(ValueError):
+    """Not enough vertical space between the terrain under the inlet footprint (+ clearance)
+    and the target free surface for a valid inlet buffer."""
 
 
 def _tangent_at_point(centreline, x_m: float, y_m: float, ds: float = 1.0) -> tuple[float, float]:
@@ -128,8 +137,19 @@ def inlet_geometry(
     centreline,
     width_m: float,
     height_m: float,
+    *,
+    dp_m: float | None = None,
+    layers: int = 0,
+    clearance_m: float = 0.0,
+    min_height_m: float = 0.0,
 ) -> InletGeometry:
-    """Place the inlet at `inflow_lon_lat` (site config `domains.near_field.inflow.location`)."""
+    """Place the inlet at `inflow_lon_lat` (site config `domains.near_field.inflow.location`).
+
+    The target free surface is `zsurf = bed(centre) + height_m`. With `dp_m` given, the inlet
+    buffer's bottom is raised to `max terrain under the rotated inlet footprint (plane + layers
+    behind it) + clearance_m`, keeping `zsurf`; the effective height/area shrink accordingly and
+    the inflow velocity must use the effective area. Raises `InletClearanceError` if the effective
+    height is below `min_height_m`."""
     lon, lat = inflow_lon_lat
     x_utm, y_utm = pyproj.Transformer.from_crs(4326, grid_near.crs_epsg, always_xy=True).transform(lon, lat)
 
@@ -146,16 +166,31 @@ def inlet_geometry(
 
     x_local = x_utm - frame["origin_x"]
     y_local = y_utm - frame["origin_y"]
-    area_m2 = width_m * height_m
+    zsurf = bed_z + height_m
+    bottom, local_max = bed_z, None
+    if dp_m is not None:
+        local_max = terrain_max_under_zone((x_local - width_m / 2, y_local, bed_z), (width_m, 0.0, height_m),
+                                           rotate_deg, (x_local, y_local), layers, dp_m, grid_near, dem_near, frame)
+        bottom = max(bed_z, local_max + clearance_m)
+    eff_height = zsurf - bottom
+    if eff_height < min_height_m or eff_height <= 0:
+        raise InletClearanceError(
+            f"inlet at ({lon}, {lat}) (UTM {x_utm:.2f}, {y_utm:.2f}): local terrain max {local_max} m + clearance "
+            f"{clearance_m} m gives bottom {bottom:.3f} m; target zsurf {zsurf:.3f} m leaves effective height "
+            f"{eff_height:.3f} m < minimum {min_height_m} m")
     return InletGeometry(
         x_utm_m=x_utm, y_utm_m=y_utm,
-        point_xyz=(x_local - width_m / 2, y_local, bed_z),
-        size_xyz=(width_m, 0.0, height_m),
+        point_xyz=(x_local - width_m / 2, y_local, bottom),
+        size_xyz=(width_m, 0.0, eff_height),
         direction_xyz=(0.0, -1.0, 0.0),
         rotate_deg=rotate_deg,
-        area_m2=area_m2,
+        area_m2=width_m * eff_height,
         bed_z_m=bed_z,
-        zsurf_m=bed_z + height_m,
+        zsurf_m=zsurf,
+        local_terrain_max_z_m=local_max,
+        clearance_m=clearance_m if dp_m is not None else 0.0,
+        effective_bottom_z_m=bottom,
+        effective_height_m=eff_height,
     )
 
 
@@ -265,6 +300,31 @@ def validate_inout_within_domain(zones: list[tuple[str, InOutZone]], dp_m: float
             "inout zone outside the generated particle domain "
             f"(x {domain['x'][0]:.3f}..{domain['x'][1]:.3f}, y {domain['y'][0]:.3f}..{domain['y'][1]:.3f}, "
             f"z {domain['z'][0]:.3f}..{domain['z'][1]:.3f}, margin {margin_m:.3f} m): " + "; ".join(problems))
+
+
+def terrain_max_under_zone(point_xyz, size_xyz, rotate_deg: float, rotate_center_xy, layers: int, dp_m: float,
+                           grid_near: CanonicalGrid, dem_near: np.ndarray, frame: dict) -> float:
+    """Highest terrain under a zone's rotated footprint (plane + `layers * dp` behind it).
+
+    `nearfield.stl` is a triangulated surface through near-field *cell centres*, so between
+    centres the solid surface is a linear interpolation of neighbouring cell values. Every cell
+    centre within one cell size of the footprint is taken (all vertices of every STL triangle
+    the footprint can touch), which bounds the surface from above -- a conservative maximum."""
+    from shapely.geometry import MultiPoint, Point
+
+    corners = zone_envelope(point_xyz, size_xyz, rotate_deg, rotate_center_xy, layers, dp_m)
+    footprint = MultiPoint([(float(x), float(y)) for x, y in corners[:, :2]]).convex_hull.buffer(grid_near.cell_size_m)
+    cs = grid_near.cell_size_m
+    minx, miny, maxx, maxy = footprint.bounds
+    # local x = origin_x + (col + 0.5) * cs - frame_x ; local y = origin_y - (row + 0.5) * cs - frame_y
+    ox, oy = grid_near.origin_x - frame["origin_x"], grid_near.origin_y - frame["origin_y"]
+    c0, c1 = max(0, int(math.floor((minx - ox) / cs))), min(grid_near.width - 1, int(math.ceil((maxx - ox) / cs)))
+    r0, r1 = max(0, int(math.floor((oy - maxy) / cs))), min(grid_near.height - 1, int(math.ceil((oy - miny) / cs)))
+    values = [float(dem_near[r, c]) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)
+              if dem_near[r, c] != FLOAT_NODATA and footprint.covers(Point(ox + (c + 0.5) * cs, oy - (r + 0.5) * cs))]
+    if not values:
+        raise InletClearanceError("no valid terrain under the inlet footprint")
+    return max(values)
 
 
 def outlet_geometry(
@@ -485,24 +545,6 @@ def build_nearfield_case(
     t_end_s = settings.t_end_s if settings.t_end_s is not None else float(hydro_t_s[-1])
 
     inflow_location = nf.inflow.location.value
-    inlet = inlet_geometry(
-        tuple(inflow_location), grid_near, dem_near, frame, centreline,
-        settings.inlet_width_m, settings.inlet_height_m,
-    )
-
-    tau_s, v_ms = hydrograph_to_velocity(hydro_t_s, hydro_q_m3s, inlet.area_m2, t_start_s, t_end_s)
-    velocity_times = [TimeValue(float(t), float(v)) for t, v in zip(tau_s, v_ms)]
-    inout_zone = InOutZone(
-        point_xyz=inlet.point_xyz, size_xyz=inlet.size_xyz, direction_xyz=inlet.direction_xyz,
-        velocity_times=velocity_times, zsurf_m=inlet.zsurf_m, layers=settings.inlet_layers,
-        rotate_deg=inlet.rotate_deg,
-        rotate_center_xy=(inlet.point_xyz[0] + inlet.size_xyz[0] / 2, inlet.point_xyz[1]),
-    )
-
-    dem_valid = dem_near[dem_near != FLOAT_NODATA]
-    z_min = float(dem_valid.min()) if dem_valid.size else 0.0
-    z_max = max(float(dem_valid.max()) if dem_valid.size else 0.0, inlet.zsurf_m)
-
     dp_setting = settings.dp_m
     left, bottom, right, top = grid_near.bounds
     domain_x_m, domain_y_m = right - left, top - bottom
@@ -520,6 +562,31 @@ def build_nearfield_case(
     else:
         dp_m = float(dp_setting)
         vram_info = check_vram(dp_m, domain_x_m, domain_y_m, fluid_depth_m, settings)
+
+    try:
+        inlet = inlet_geometry(
+            tuple(inflow_location), grid_near, dem_near, frame, centreline,
+            settings.inlet_width_m, settings.inlet_height_m,
+            dp_m=dp_m, layers=settings.inlet_layers,
+            clearance_m=settings.inlet_terrain_clearance_dp * dp_m,
+            min_height_m=settings.min_inlet_height_dp * dp_m,
+        )
+    except InletClearanceError as e:
+        raise InletClearanceError(f"{site_id}/{scenario_id}: {e}") from None
+
+    tau_s, v_ms = hydrograph_to_velocity(hydro_t_s, hydro_q_m3s, inlet.area_m2, t_start_s, t_end_s)
+    velocity_times = [TimeValue(float(t), float(v)) for t, v in zip(tau_s, v_ms)]
+    inout_zone = InOutZone(
+        point_xyz=inlet.point_xyz, size_xyz=inlet.size_xyz, direction_xyz=inlet.direction_xyz,
+        velocity_times=velocity_times, zsurf_m=inlet.zsurf_m, layers=settings.inlet_layers,
+        rotate_deg=inlet.rotate_deg,
+        rotate_center_xy=(inlet.point_xyz[0] + inlet.size_xyz[0] / 2, inlet.point_xyz[1]),
+    )
+
+    dem_valid = dem_near[dem_near != FLOAT_NODATA]
+    z_min = float(dem_valid.min()) if dem_valid.size else 0.0
+    z_max = max(float(dem_valid.max()) if dem_valid.size else 0.0, inlet.zsurf_m)
+
 
     # The domain DualSPHysics will actually build; every inout point must lie inside it.
     domain = generated_domain(grid_near, dem_near, dp_m, settings.boundary_layers)
@@ -617,7 +684,13 @@ def build_nearfield_case(
         "inlet": {
             "x_utm_m": inlet.x_utm_m, "y_utm_m": inlet.y_utm_m,
             "area_m2": inlet.area_m2, "bed_z_m": inlet.bed_z_m, "zsurf_m": inlet.zsurf_m,
-            "rotate_deg": inlet.rotate_deg,
+            "rotate_deg": inlet.rotate_deg, "width_m": settings.inlet_width_m,
+            # Source/physical inlet vs the solver buffer actually generated (Feature 6):
+            "source_bed_z_m": inlet.bed_z_m, "target_zsurf_m": inlet.zsurf_m,
+            "local_terrain_max_z_m": inlet.local_terrain_max_z_m, "terrain_clearance_m": inlet.clearance_m,
+            "effective_bottom_z_m": inlet.effective_bottom_z_m, "effective_height_m": inlet.effective_height_m,
+            "effective_area_m2": inlet.area_m2,
+            "velocity_area_basis": "effective_area_m2",
         },
         "outlet": {
             "x_utm_m": outlet.x_utm_m, "y_utm_m": outlet.y_utm_m,

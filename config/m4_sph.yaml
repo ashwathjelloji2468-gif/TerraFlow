@@ -66,3 +66,11 @@ max_excluded_particle_fraction: 0.05
 # centreline at `domains.near_field.inflow.location`, from the scenario's real `<scenario>__delft3d`
 # map. 300 m is the width the Teesta MVP comparison used (backend/m4_sph/teesta_mvp.py).
 routed_section_width_m: 300.0
+
+# Inlet buffer vs terrain (backend/m4_sph/generator.py `inlet_geometry`, Feature 6). The inlet's
+# lowest buffer particles must sit at least this many dp above the highest terrain under the whole
+# rotated inlet footprint (plane + particle layers), or DualSPHysics rejects the case at
+# JSphInOut::InitCheckProximity. The target free surface (bed + inlet_height_m) is kept, so the
+# effective inlet is shorter; generation fails if it is below min_inlet_height_dp * dp.
+inlet_terrain_clearance_dp: 1.0
+min_inlet_height_dp: 3.0

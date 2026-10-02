@@ -39,7 +39,7 @@ def _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, **overri
 
 
 def test_build_and_write_nearfield_case(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, tmp_path):
-    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=10.0)
+    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=2.0)
 
     run_dir = tmp_path / "runs" / "synth_s001__sph"
     case_dir = write_case(spec, case_meta, run_dir, synth_terrain_dir)
@@ -53,7 +53,7 @@ def test_build_and_write_nearfield_case(synth_terrain_dir, synth_hydrograph_para
     root = tree.getroot()
 
     dp = float(root.find("./casedef/geometry/definition").get("dp"))
-    assert dp == pytest.approx(10.0)
+    assert dp == pytest.approx(2.0)
 
     time_max = next(p for p in root.findall("./execution/parameters/parameter") if p.get("key") == "TimeMax")
     assert float(time_max.get("value")) > 0
@@ -82,7 +82,7 @@ def test_build_and_write_nearfield_case(synth_terrain_dir, synth_hydrograph_para
 
 
 def test_inlet_mass_flux_matches_hydrograph(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir):
-    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=10.0)
+    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=2.0)
     zone = spec.inout_zones[0]
     area_m2 = case_meta["inlet"]["area_m2"]
 
@@ -105,7 +105,7 @@ def test_m4_consumes_routed_m3_artifact(synth_terrain_dir, synth_hydrograph_para
         provenance={"source_map": "controlled-m3-output-fixture"},
     )
     spec, meta = build_nearfield_case(
-        "synth", "synth_s001", synth_hydrograph_params, load_sph_settings(dp_m=10),
+        "synth", "synth_s001", synth_hydrograph_params, load_sph_settings(dp_m=2.0),
         data_dir=synth_terrain_dir.parent.parent, sites_dir=synth_sites_dir,
         routed_discharge_path=sidecar,
     )
@@ -123,7 +123,7 @@ def test_m4_consumes_routed_m3_artifact(synth_terrain_dir, synth_hydrograph_para
 def test_outlet_is_downstream_of_inlet_and_spans_domain_height(
     synth_terrain_dir, synth_hydrograph_params, synth_sites_dir,
 ):
-    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=10.0)
+    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=2.0)
     inlet_zone, outlet_zone = spec.inout_zones
     # The outlet sits further along the flow (SPH-frame y here, per the synthetic V-valley
     # centreline) than the inlet, not on top of it.
@@ -131,7 +131,7 @@ def test_outlet_is_downstream_of_inlet_and_spans_domain_height(
     # It uses the same depth ceiling as the inlet (inlet_height_m), not the domain's full
     # terrain relief (which can include valley walls far above any plausible flood surface,
     # and would blow the particle/VRAM budget for no modelling benefit).
-    settings = load_sph_settings(dp_m=10.0)
+    settings = load_sph_settings(dp_m=2.0)
     assert outlet_zone.size_xyz[2] == pytest.approx(settings.inlet_height_m)
     # Convert-fluid outlet, not remove-fluid: a real fluid particle found in the outlet's
     # footprint should be turned into an inout ghost particle, never hard-deleted.
@@ -140,13 +140,13 @@ def test_outlet_is_downstream_of_inlet_and_spans_domain_height(
 
 
 def test_gauges_present_for_every_probe_kept(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir):
-    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=10.0)
+    spec, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=2.0)
     assert {g.name for g in spec.swl_gauges} == {"swl_synth__poi__town_a"}
     assert {g.name for g in spec.vel_gauges} == {"vel_synth__poi__town_a"}
 
 
 def test_placeholders_and_provenance_recorded(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir):
-    _, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=10.0)
+    _, case_meta = _build(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, dp_m=2.0)
     cfg = load_site_config("synth", sites_dir=synth_sites_dir)
     assert case_meta["has_placeholders"] == cfg.has_placeholders
     assert case_meta["placeholder_fields"] == cfg.placeholder_fields
