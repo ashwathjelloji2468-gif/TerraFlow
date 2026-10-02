@@ -3059,3 +3059,25 @@ shows the population range, zone rule, facilities, lead time and depth class. Al
 **Not done / limits:** no D·V layer (unverified thresholds); no low-confidence downgrade (no per-cell
 confidence); scenario-mode zones are emulator-only probability; no breach pair; no real Teesta emulator exists,
 so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passed, 23 skipped.
+
+## 2026-10-02 — Feature 10: Google Earth Engine near-real-time monitoring
+- `GET /gee` now reports only what is on disk: `source` is `cache` (or `screenshot_fallback` when only
+  screenshots exist), never `live`; with nothing fetched it returns an honest empty payload
+  (`data_available: false`) instead of the contract example mock (whose lake polygon was made up).
+- `POST /gee/{id}/refresh` says `live` only if Earth Engine returned at least one product in that
+  request; `partial: true` when some products were live and others fell back; per-product outcome in
+  the additive `refresh` block. All new fields are optional/additive; schema files unchanged.
+- `gee_meta.json` per product: `source` (live|cache|none), `fetched_at` = last live success (no longer
+  re-stamped by cache-only runs), `last_attempt_at`, `acquisition_dates`, `scene_ids`, `cloud_pct`,
+  `method`, sanitised `error`, `fallback_reason`. Fetch keeps the `imagery` entry (previously lost).
+- Fetch: one failed month no longer discards the other months (3 consecutive errors with no success =
+  outage → cache); rainfall cache merged by date instead of replaced; lake polygon carries
+  acquisition dates and cloud %. S2/S1 science (SCL, NIR, slope, Otsu, seeded component, skips) unchanged.
+- Imagery live render writes staging files and swaps both phases in only after both succeed; records
+  scene IDs, acquisition dates and cloud %; nothing staged → `source: none`, no imagery fabricated.
+- Errors returned/stored via `cache.safe_error` (paths and credential-shaped strings redacted).
+- Frontend: per-product live/cached chips, partial / EE-unavailable notices, acquisition date, cloud %,
+  "satellite estimate, not gauge" rainfall note, Data Layers description fixed.
+- Tests: `tests/m7_gee/test_monitoring.py`, `tests/m0_api/test_gee_monitoring.py`; manual real-GEE
+  smoke `tests/m7_gee/test_real_gee_smoke.py` (skipped unless `TERRAFLOW_GEE_SMOKE=1`). Real Teesta did
+  NOT reach Earth Engine from this sandbox (no `ee` package, no credentials) — run the smoke on the team machine.

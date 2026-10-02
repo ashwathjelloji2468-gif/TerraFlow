@@ -56,7 +56,7 @@ MANIFEST_NAME = "imagery/manifest.json"
 class ImageryResult:
     site_id: str
     manifest_path: Path | None = None
-    source: str = "cache"  # "live" | "cache"
+    source: str = "cache"  # "live" | "cache" | "none" (nothing on disk either)
     errors: list[str] = field(default_factory=list)
 
 
@@ -80,6 +80,11 @@ def raw_rgb_path(source: str | None, repo_root: Path = REPO_ROOT) -> Path:
     src_path = Path(source)
     rgb_name = f"{src_path.stem}_rgb{src_path.suffix}"
     return repo_root / src_path.with_name(rgb_name)
+
+
+def staging_path(final: Path) -> Path:
+    """Where a live render writes a phase's RGB GeoTIFF before it is swapped in."""
+    return final.with_name(final.stem + ".staging" + final.suffix)
 
 
 def _fallback_shape(width: int, height: int, max_px: int = FALLBACK_MAX_PX) -> tuple[int, int]:
@@ -131,6 +136,7 @@ def _convert_one(raw_tif: Path, stem: str, imagery_dir: Path) -> dict:
 
 def _merge_gee_meta_imagery(
     site_id: str, entries: list[dict], scene_ids: dict[str, list[str]], source: str, data_dir: Path,
+    cloud_pct: float | None = None, acquisition_dates: list[str] | None = None,
 ) -> None:
     """Merges an `"imagery"` product entry into `gee_meta.json` (contract §4.8), keeping whatever
     `fetch.py` already wrote for `lake_area`/`lake_latest`/`rainfall` untouched."""
@@ -139,9 +145,26 @@ def _merge_gee_meta_imagery(
     meta = cache.read_json(site_id, "gee_meta.json", data_dir) or {"site_id": site_id}
     meta["imagery"] = {
         "dataset": "sentinel-2", "scene_ids": all_scene_ids,
-        "acquisition_dates": sorted({e["date"] for e in entries}),
-        "cloud_pct": None, "fetched_at": now, "source": source,
+        "acquisition_dates": sorted(set(acquisition_dates or [e["date"] for e in entries])),
+        "event_dates": sorted({e["date"] for e in entries}),
+        "cloud_pct": cloud_pct, "fetched_at": now, "last_attempt_at": now, "source": source,
+        "method": "least-cloudy Sentinel-2 RGB within +/-15 days of the event date" if source == "live"
+                  else "operator-staged RGB GeoTIFF",
+        "error": None, "fallback_reason": None,
     }
+    cache.write_json(site_id, "gee_meta.json", meta, data_dir)
+
+
+def _record_imagery_failure(site_id: str, error: str, data_dir: Path, reason: str) -> None:
+    """A failed live attempt keeps the previous imagery provenance (incl. its `fetched_at`) and only
+    records the attempt, the sanitised error and why the cached copy is served."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = cache.read_json(site_id, "gee_meta.json", data_dir) or {"site_id": site_id}
+    entry = dict(meta.get("imagery") or {"dataset": "sentinel-2", "scene_ids": [], "acquisition_dates": [],
+                                           "cloud_pct": None, "fetched_at": None})
+    entry.update(last_attempt_at=now, error=error, fallback_reason=reason)
+    entry["source"] = "cache" if (entry.get("source") in ("live", "cache")) else "none"
+    meta["imagery"] = entry
     cache.write_json(site_id, "gee_meta.json", meta, data_dir)
 
 
@@ -191,20 +214,58 @@ def refresh(
     overwriting the staged `_rgb.tif` files, then reconverts. Falls back to whatever is already
     on disk on any failure -- missing credentials, no network, or no usable scene near the date."""
     cfg = cfg or load_site_config(site_id)
+    data_dir = Path(data_dir)
     result = ImageryResult(site_id=site_id)
+    rendered = None
+    staged: list[Path] = []
 
     try:
         from .live_render import render_event_rgb  # deferred: only needed for a live attempt
 
         event = _event_for_imagery(cfg)
-        render_event_rgb(cfg, event, repo_root=Path(repo_root), ee_project=ee_project)
+        staged = [staging_path(raw_rgb_path(sv.source, Path(repo_root)))
+                  for sv in (event.imagery_pre_event, event.imagery_post_event)]
+        rendered = render_event_rgb(cfg, event, repo_root=Path(repo_root), ee_project=ee_project)
+        if isinstance(rendered, dict):
+            missing = [ph for ph in PHASES if ph not in rendered]
+            if missing:
+                raise RuntimeError(f"live render did not return phase(s) {missing}")
+            for info in rendered.values():  # every phase rendered: only now replace the originals
+                Path(info["staged"]).replace(info["final"])
         result.source = "live"
     except Exception as e:
-        log.warning("live imagery refresh failed for '%s', keeping cached RGB tifs: %s", site_id, e)
-        result.errors.append(f"imagery: {e}")
+        err = cache.safe_error(e)
+        log.warning("live imagery refresh failed for '%s', keeping cached RGB tifs: %s", site_id, err)
+        result.errors.append(f"imagery: {err}")
         result.source = "cache"
+        rendered = None
+    finally:
+        for p in staged:  # never leave a half-finished render behind
+            if p.is_file():
+                p.unlink()
 
-    result.manifest_path = convert(site_id, cfg=cfg, data_dir=data_dir, repo_root=repo_root)
+    try:
+        if result.source == "live" and isinstance(rendered, dict):
+            scene_ids = {ph: [rendered[ph]["scene_id"]] for ph in PHASES if rendered[ph].get("scene_id")}
+            clouds = [rendered[ph]["cloud_pct"] for ph in PHASES if rendered[ph].get("cloud_pct") is not None]
+            acq = [rendered[ph]["acquisition_date"] for ph in PHASES if rendered[ph].get("acquisition_date")]
+            result.manifest_path = convert(site_id, cfg=cfg, data_dir=data_dir, repo_root=repo_root)
+            manifest = cache.read_json(site_id, MANIFEST_NAME, data_dir) or {}
+            _merge_gee_meta_imagery(site_id, manifest.get("imagery", []), scene_ids, "live", data_dir,
+                                    cloud_pct=max(clouds) if clouds else None, acquisition_dates=acq)
+        else:
+            result.manifest_path = convert(site_id, cfg=cfg, data_dir=data_dir, repo_root=repo_root)
+            if result.errors:
+                _record_imagery_failure(site_id, result.errors[-1].removeprefix("imagery: "), data_dir,
+                                        "provider_error")
+    except (FileNotFoundError, ValueError) as e:
+        # Nothing staged on disk to fall back to either: report it, don't fabricate imagery.
+        err = cache.safe_error(e)
+        result.errors.append(f"imagery: {err}")
+        result.source = "none" if result.source != "live" else result.source
+        existing = cache.gee_dir(site_id, data_dir) / MANIFEST_NAME
+        result.manifest_path = existing if existing.is_file() else None
+        _record_imagery_failure(site_id, err, data_dir, "no_cached_imagery")
     return result
 
 
