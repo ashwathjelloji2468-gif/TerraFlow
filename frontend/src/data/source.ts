@@ -9,10 +9,11 @@
 // inventing routes for them.
 import type {Grid, Params, Result} from '@/lib/model';
 import type {Scenario} from '@/lib/sentriq';
+import siteRuntimeConfig from '../content/site_runtime.json';
 import {api, ApiError, useMocks, type ScenarioDesign, type ScenarioPoint, type WhatIfRequest, type WhatIfResponse, type FloodQueryRequest, type FloodQueryResponse, type ImpactResponse, type CompareResponse, type GeeLayers, type Timeline, type SiteSummary, type SiteDetail, type JobStatus, type ValidationResponse, type HistoricalValidationResponse, type Scene3DResponse} from './api';
 import uiText from '../content/ui_text.json';
 import * as offlineCache from '../offline/cache-store';
-import {collectGlobalUrls, collectResourceUrls, type OfflineBundle} from '../offline/resource-list';
+import {offlineProvenance, collectGlobalUrls, collectResourceUrls, type OfflineBundle} from '../offline/resource-list';
 import {buildSiteConfig, validateWizardSite, type WizardSite} from './site-config';
 
 export type {WizardSite, DamKind} from './site-config';
@@ -21,8 +22,8 @@ export {siteIdFromName, validateWizardSite, missingTerrainFields} from './site-c
 export type Awaiting = {status: 'awaiting'; reason: string};
 
 export type {SiteSummary} from './api';
-export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename} from './dashboard';
-export type {DashboardMetric, GeeStatus, ValidationStatus, CompareOption, CompareSection, MethodInfo} from './dashboard';
+export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename, statusChips, directDetail} from './dashboard';
+export type {StatusChip, DashboardMetric, GeeStatus, ValidationStatus, CompareOption, CompareSection, MethodInfo} from './dashboard';
 import {exportFilename} from './dashboard';
 export type {SavedQuery} from '../offline/cache-store';
 export type {OfflineBundle} from '../offline/resource-list';
@@ -30,7 +31,16 @@ export type {OfflineBundle} from '../offline/resource-list';
 /** Mock switch and the one registered direct solver scenario exposed for the MVP site. */
 export function isMockMode(): boolean { return useMocks; }
 export function directEventScenarioId(siteId: string): string | undefined {
-  return !useMocks && siteId === 'teesta' ? 'teesta_2023_mvp' : undefined;
+  // Feature 12: from src/content/site_runtime.json (mirrors config/registered_runs.yaml), not code.
+  return !useMocks ? siteRuntime(siteId).direct_event_scenario_id : undefined;
+}
+export type SiteRuntime = {direct_event_scenario_id?: string; demo_site?: boolean; reference_panel?: string};
+export function siteRuntime(siteId: string): SiteRuntime {
+  return ((siteRuntimeConfig as {sites: Record<string, SiteRuntime>}).sites[siteId] ?? {});
+}
+/** The site whose registered direct run the landing-page demo opens (config, not code). */
+export function demoSiteId(): string | undefined {
+  return Object.entries((siteRuntimeConfig as {sites: Record<string, SiteRuntime>}).sites).find(([, v]) => v.demo_site)?.[0];
 }
 
 /** Contract §5.1 — GET /sites. */
@@ -281,7 +291,7 @@ export async function estimateOfflineSaveSize(bundle: OfflineBundle) {
  * dashboard can reopen it later with no connection. */
 export async function saveQueryForOffline(bundle: OfflineBundle, siteName: string, onProgress?: (p: {done: number; total: number}) => void) {
   const urls = [...collectGlobalUrls(), ...collectResourceUrls(bundle)];
-  return offlineCache.saveForOffline(bundle.siteId, bundle.floodQuery.query_id, siteName, urls, onProgress);
+  return offlineCache.saveForOffline(bundle.siteId, bundle.floodQuery.query_id, siteName, urls, onProgress, offlineProvenance(bundle));
 }
 
 /** Reopens a previously saved query straight from the cache — never a fresh

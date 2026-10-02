@@ -408,6 +408,8 @@
     "unavailable": "Unavailable",
     "emulatorValidation": "Emulator validation (LOOCV)",
     "historicalValidation": "Historical validation",
-    "observedData": "Observed extent"
+    "observedData": "Observed extent",
+    "literatureComparison": "Literature comparison",
+    "comparisonOnly": "Comparison only (not validation)"
   }
 }

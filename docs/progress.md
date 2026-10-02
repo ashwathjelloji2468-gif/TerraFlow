@@ -3107,3 +3107,38 @@ so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passe
 - Tests: `tests/m0_api/test_feature11_honest_fallbacks.py`; `frontend/scripts/test-dashboard.mjs`
   (`npm run test:dashboard`). All synthetic fixtures; no real Teesta emulator, no real SPH pair, no
   validation report exists yet, so those panels correctly show Unavailable.
+
+## 2026-10-02 — Feature 12: validation, provenance, generalized deployment, PS compliance
+- Scope: stop remaining false claims, centralize version provenance, carry provenance through every
+  result/export/offline path, move Teesta-only runtime behaviour to config, separate status states
+  in the UI, and add an evidence-checked PS compliance matrix. No science code or equations changed.
+- False-claim fixes: historical validation `validation_available` is now true ONLY with observed data;
+  literature reconstructions are `comparison_available` / `comparison_kind: literature_reconstruction`
+  (`is_validation: false`). `/health` reports the real git commit (`backend/shared/version.py`,
+  `-dirty` suffix + `code_dirty`) instead of `mock-0.0.0`. `/scene3d` without artifacts -> 404
+  `scene_unavailable`; `/files` for any missing/unmatched artifact -> 404 (no placeholder PNG, example
+  GeoJSON or zero bytes). Routed-discharge default status renamed `artifact_schema_checked` (schema enum
+  extended additively; legacy `artifact_validated` still accepted).
+- Provenance: D-Flow/SPH direct results add `generated_at`, `code_version`, `code_dirty`,
+  `contract_version`, `solver`, `solver_version`/`run_completed_at` when run_meta has them, and
+  `input_forcing_note`. Exports: GeoJSON top-level `metadata`, KML `ExtendedData`, `provenance.json`
+  in the shapefile zip, PDF lines for scenario/code version/forcing note. Offline saves record
+  provenance (method, run IDs, versions, placeholder/GEE/validation state).
+- Generalization: `config/registered_runs.yaml` + `backend/m0_api/run_metadata.py` (run_meta.json ->
+  config -> generic default) replace the hardcoded Teesta MVP DEM/POI/forcing paths (incl. a
+  cwd-relative path), `south_lhonak` dam ID and default compare scenario. Literature citations moved
+  verbatim to `config/literature_references.yaml`. Frontend site behaviour (demo site, direct-event
+  scenario, ISRO reference panel) in `frontend/src/content/site_runtime.json`; the D-Flow caveat comes
+  from provenance, so the Teesta MVP text is unchanged and other sites no longer get it.
+- UI: five separate status chips (validation / comparison / simulation / emulator / monitoring);
+  Validation card shows literature comparison as "comparison only".
+- Compliance: `docs/ps_compliance.md` (12 requirements: 6 IMPLEMENTED, 4 PARTIAL, 2 BLOCKED, 0 NOT IMPLEMENTED; see
+  the file), evidence paths checked by `tests/test_ps_compliance.py`.
+- Test hygiene: `test_get_gee` / `test_refresh_gee` now use the isolated `data_dir` fixture (they were
+  writing `data/teesta/gee/` in the repo).
+- Tests: `tests/m0_api/test_feature12_provenance.py` (14), `tests/test_ps_compliance.py` (3), 5
+  obsolete mock-expecting tests rewritten to the honest 404/comparison behaviour, 4 new + 1 updated
+  checks in `frontend/scripts/test-dashboard.mjs`. Backend 1284 passed / 24 skipped; frontend
+  check:shell, build, test:offline, test:scenarios, test:site-config, test:dashboard all pass.
+- Remaining real-world blockers: no observed flood extent, no real-site LOOCV/emulator, no accepted
+  SPH/D-Flow pair, Teesta production inputs placeholder, no EE credentials for the live smoke test.

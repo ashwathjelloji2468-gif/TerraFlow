@@ -12,6 +12,10 @@ from rasterio.features import shapes
 from shapely.geometry import mapping, shape
 from shapely.ops import transform as transform_geometry, unary_union
 
+from datetime import datetime, timezone
+
+from backend.m0_api import run_metadata
+from backend.shared.version import version_info
 from backend.m0_api import dem_diagnostics, registry
 from backend.shared.grid import raster_bounds_latlng
 
@@ -104,11 +108,9 @@ def resolve_registered_run(site_id: str, scenario_id: str, model: str, query_id:
     extra_caveats: list[dict] = []
     diagnostics: dict = {}
     if model == "delft3d":
-        # Matches real_impact.py's existing frozen-pilot-geometry special case: this run's mesh
-        # bed levels came from the teesta_pilot 90 m DEM, not the full teesta far-field DEM.
-        dem_path = (site_dir.parent / "teesta_pilot" / "terrain" / "dem.tif"
-                    if site_id == "teesta" and row["run_id"] == "teesta_2023_mvp__delft3d"
-                    else site_dir / "terrain" / "dem.tif")
+        # The DEM matching this run's mesh (config/registered_runs.yaml `terrain_site_id`, e.g. the
+        # Teesta MVP run's frozen teesta_pilot 90 m DEM; default: the site's own terrain).
+        dem_path = run_metadata.terrain_dir(site_dir, row["run_id"], run_meta) / "dem.tif"
         if dem_path.is_file():
             settings = dem_diagnostics.load_settings()
             cache_dir = site_dir / "_diagnostics"
@@ -207,6 +209,12 @@ def resolve_registered_run(site_id: str, scenario_id: str, model: str, query_id:
                        "domain_status": run_meta.get("domain_status"),
                        "input_forcing_status": run_meta.get("input_forcing_status"),
                        "scientific_claim": run_meta.get("scientific_claim"),
+                       "input_forcing_note": run_metadata.input_forcing_note(row["run_id"], run_meta),
+                       "solver": run_meta.get("solver") or model,
+                       "solver_version": run_meta.get("solver_version") or run_meta.get("kernel_version"),
+                       "run_completed_at": run_meta.get("completed_at") or run_meta.get("finished_at"),
+                       "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                       **version_info(),
                        "data_sources": [str(run_meta_path.relative_to(root))],
                        "diagnostics": diagnostics},
         "timing_ms": {"median_phase": 0.0, "full_phase": 0.0},

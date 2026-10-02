@@ -15,6 +15,7 @@ import rasterio
 import xarray as xr
 from rasterio.features import rasterize
 
+from backend.m0_api import run_metadata
 from backend.m3_common.postprocess import _faces, _rasterize, _time_seconds, _write_raster
 from backend.shared.grid import raster_bounds_latlng
 
@@ -89,22 +90,18 @@ def create_timeline(site_dir: Path, query_dir: Path, run_id: str) -> Path:
 
     # Reuse the exact forcing delivered to the solver when available; values
     # remain explicitly reconstructed input forcing, not an observed series.
-    is_teesta_mvp = site_dir.name == "teesta" and run_id == "teesta_2023_mvp__delft3d"
-    forcing_candidates = [case_dir / "inputs" / "teesta_2023_mvp_forcing.csv"]
-    if is_teesta_mvp:
-        forcing_candidates.append(Path("data/teesta_mvp/inputs/teesta_2023_mvp_forcing.csv"))
+    forcing_candidates = run_metadata.forcing_candidates(site_dir, case_dir, run_id)
     forcing_path = next((p for p in forcing_candidates if p.is_file()), None)
     hydrographs = []
     if forcing_path:
         with forcing_path.open(newline="", encoding="utf-8") as stream:
             points = [{"t_s": float(r["t_s_since_hydrograph_start"]), "q_m3s": float(r["q_m3s"])}
                       for r in csv.DictReader(stream)]
-        hydrographs = [{"dam_id": "south_lhonak", "t_offset_s": 0.0, "points": points}]
+        hydrographs = [{"dam_id": run_metadata.dam_id(site_dir.name, run_id), "t_offset_s": 0.0, "points": points}]
 
     # POI arrival rows come from M3's processed history time series.
     profile, pois = [], []
-    poi_path = (site_dir.parent / "teesta_pilot" / "terrain" / "pois.gpkg" if is_teesta_mvp
-                else site_dir / "terrain" / "pois.gpkg")
+    poi_path = run_metadata.terrain_dir(site_dir, run_id) / "pois.gpkg"
     timeseries = run_dir / "timeseries.csv"
     if poi_path.is_file() and timeseries.is_file():
         import geopandas as gpd

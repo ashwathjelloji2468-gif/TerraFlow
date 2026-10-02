@@ -1,0 +1,10 @@
+{
+  "_comment": "Feature 12: per-site frontend runtime metadata (mirrors config/registered_runs.yaml). A site not listed here gets no site-specific behaviour.",
+  "sites": {
+    "teesta": {
+      "direct_event_scenario_id": "teesta_2023_mvp",
+      "demo_site": true,
+      "reference_panel": "isro_south_lhonak"
+    }
+  }
+}

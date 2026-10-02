@@ -19,6 +19,8 @@ export type SavedQuery = {
   savedAt: string; // ISO timestamp
   sizeBytes: number;
   resourceCount: number;
+  /** Feature 12: provenance of what was saved (method, run IDs, versions, fallback state). */
+  provenance?: Record<string, unknown>;
 };
 
 function readManifest(): SavedQuery[] {
@@ -85,6 +87,7 @@ export async function saveForOffline(
   siteName: string,
   urls: string[],
   onProgress?: (progress: SaveProgress) => void,
+  provenance?: Record<string, unknown>,
 ): Promise<SavedQuery> {
   if (!isCacheSupported()) throw new Error('This browser does not support offline caching.');
   const cache = await caches.open(DATA_CACHE_NAME);
@@ -105,7 +108,7 @@ export async function saveForOffline(
     onProgress?.({done: i + 1, total: unique.length});
   }
   if (stored === 0) throw new Error('Nothing could be saved for offline use — check the connection and try again.');
-  const entry: SavedQuery = {siteId, queryId, siteName, savedAt: new Date().toISOString(), sizeBytes, resourceCount: stored};
+  const entry: SavedQuery = {siteId, queryId, siteName, savedAt: new Date().toISOString(), sizeBytes, resourceCount: stored, ...(provenance ? {provenance} : {})};
   writeManifest([entry, ...readManifest().filter(existing => existing.queryId !== queryId)]);
   return entry;
 }

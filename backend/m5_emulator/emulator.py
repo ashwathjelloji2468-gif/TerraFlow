@@ -107,14 +107,10 @@ def _corridor_indices(mask: np.ndarray) -> np.ndarray:
 
 
 def _code_version() -> str | None:
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5, check=True,
-        )
-        return out.stdout.strip() or None
-    except Exception:
-        return None
-
+    """Delegates to `backend.shared.version` (Feature 12); `None` when unknown, as before."""
+    from backend.shared.version import UNKNOWN, code_version
+    v = code_version()
+    return None if v == UNKNOWN else v
 
 @dataclass
 class FloodEmulator:

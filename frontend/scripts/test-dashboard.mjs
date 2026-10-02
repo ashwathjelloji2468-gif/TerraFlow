@@ -52,8 +52,11 @@ try {
   await test('M5 is labelled emulator prediction, D-Flow FM as solver run', () => {
     assert.match(src.methodInfo({...flood, method: 'gp_emulator'}).label, /Emulator prediction/);
     assert.equal(src.methodInfo({...flood, method: 'gp_emulator'}).kind, 'emulator_prediction');
-    const d = src.methodInfo({...flood, method: 'delft3d_direct'});
-    assert.match(d.label, /D-Flow FM/); assert.match(d.detail, /MVP/); assert.match(d.detail, /not scientifically validated/);
+    const note = 'MVP reconstructed South Lhonak forcing · real D-Flow FM output · not scientifically validated.';
+    const d = src.methodInfo({...flood, method: 'delft3d_direct', provenance: {...flood.provenance, input_forcing_note: note}});
+    assert.match(d.label, /D-Flow FM/); assert.equal(d.detail, note);  // Teesta MVP caveat preserved, from provenance
+    const other = src.methodInfo({...flood, method: 'delft3d_direct', provenance: {}});
+    assert.doesNotMatch(other.detail, /Lhonak|MVP/); assert.match(other.detail, /not validated/);  // Feature 12: no Teesta text elsewhere
   });
   await test('design rows populate compare options; selected scenario reaches /compare', async () => {
     const d = await src.getScenarioDesign('synth');
@@ -107,6 +110,35 @@ try {
     const empty = {contract_version: '0.3.0', site_id: 's', model: 'delft3d', n_runs: 0, per_run: [], summary: {}, baseline_linear: {}, grade_thresholds_ref: '', events: [], validation_available: false};
     const v = src.validationStatus(empty, null);
     assert.equal(v.emulator, false); assert.equal(v.historical, false); assert.match(v.note, /not field validation/);
+  });
+  await test('F12: literature-only historical report is comparison, never validation', () => {
+    const h = {contract_version: '0.3.0', site_id: 's', event_id: 'e', observed: {available: false}, predicted: {}, metrics: {}, comparison_domain: 'x', caveats: [],
+      provenance: {validation_available: true, comparison_available: true}, literature_comparison: {available: true}};
+    const v = src.validationStatus(null, h);
+    assert.equal(v.historical, false, 'no observed data -> never validation, even if a flag says so');
+    assert.equal(v.literatureComparison, true);
+  });
+  await test('F12: five status chips stay separate', () => {
+    const chips = Object.fromEntries(src.statusChips({...flood, method: 'gp_emulator'}, null, null, null, {...gee, source: 'cache'}).map(c => [c.key, c]));
+    assert.deepEqual(Object.keys(chips), ['validation', 'comparison', 'simulation', 'emulator', 'monitoring']);
+    assert.equal(chips.validation.state, 'Validation unavailable');
+    assert.equal(chips.emulator.state, 'Emulator prediction available'); assert.equal(chips.simulation.ok, false);
+    assert.equal(chips.monitoring.state, 'Monitoring CACHE');
+    const direct = Object.fromEntries(src.statusChips({...flood, method: 'delft3d_direct'}, null, null, null, null).map(c => [c.key, c]));
+    assert.equal(direct.simulation.ok, true); assert.equal(direct.emulator.ok, false); assert.equal(direct.monitoring.state, 'Monitoring unavailable');
+  });
+  await test('F12: site runtime behaviour comes from config, not hardcoded IDs', () => {
+    assert.equal(src.demoSiteId(), 'teesta');
+    assert.equal(src.siteRuntime('demo_valley').direct_event_scenario_id, undefined);
+    assert.equal(src.directEventScenarioId('demo_valley'), undefined);
+  });
+  await test('F12: offline save records provenance from the bundle', () => {
+    const fq = {...flood, provenance: {...flood.provenance, code_version: 'abc1234', generated_at: '2026-10-02T00:00:00Z', run_ids: ['r1']}};
+    const meta = rl.offlineProvenance({siteId: 'synth', floodQuery: fq, impact: null, compare: null, timeline: null, validation: null, gee: {...gee, data_available: false}, scene3d: null});
+    assert.equal(meta.code_version, 'abc1234'); assert.equal(meta.method, fq.method); assert.deepEqual(meta.run_ids, ['r1']);
+    assert.equal(meta.gee_source, 'none'); assert.equal(meta.impact_available, false); assert.equal(meta.validation_available, null);
+    assert.equal(meta.has_placeholders, !!fq.flags.has_placeholders);
+    assert.deepEqual(JSON.parse(JSON.stringify(meta)), meta);
   });
   await test('offline bundle with Feature 11 compare stays serializable and collects layer URLs', () => {
     const compare = ex('compare'); compare.scenario_id = 's 1';

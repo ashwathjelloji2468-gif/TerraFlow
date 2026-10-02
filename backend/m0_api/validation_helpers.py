@@ -26,39 +26,15 @@ from typing import Any
 
 from backend.m0_api import registry
 
-# Literature reconstruction values for Chungthang (South Lhonak GLOF, Oct 2023), quoted
-# verbatim from docs/data_sources.md src_044/src_045. Point-citation display data only --
-# never used as a model input, never treated as an observation.
-CHUNGTHANG_LITERATURE_CITATIONS: list[dict[str, Any]] = [
-    {
-        "source_id": "src_044",
-        "citation": "Sikkim 2023 flood reconstruction and cascade impacts "
-                    "(https://eprints.whiterose.ac.uk/id/eprint/224098/)",
-        "quantity": "arrival_time_ist",
-        "value": "2023-10-04T00:30:00+05:30",
-        "note": "Paper's reconstructed arrival at Chungthang. A modelled reconstruction, not a "
-                "direct field observation of the event.",
-    },
-    {
-        "source_id": "src_044",
-        "citation": "Sikkim 2023 flood reconstruction and cascade impacts "
-                    "(https://eprints.whiterose.ac.uk/id/eprint/224098/)",
-        "quantity": "peak_discharge_m3s",
-        "value": 5340.0,
-        "note": "Paper's modelled peak discharge at Chungthang. A modelled reconstruction, not a "
-                "direct field observation of the event.",
-    },
-    {
-        "source_id": "src_045",
-        "citation": "Gaikwad, Tiwari & Goswami (2025), Natural Hazards, "
-                    "doi:10.1007/s11069-025-07350-9",
-        "quantity": "peak_discharge_m3s",
-        "value": 7355.0,
-        "note": "Paper's modelled peak discharge at Chungthang for the actual event reconstruction. "
-                "This same figure was already used as this run's own upstream forcing target "
-                "(see forcing_provenance_path), so it is not an independent check on this run's output.",
-    },
-]
+# Literature reconstruction values (Feature 12: moved to config/literature_references.yaml, keyed
+# by site). Point-citation display data only -- never a model input, never an observation, and
+# never validation (they are modelled reconstructions).
+def _literature(site_id: str) -> dict[str, Any]:
+    from backend.m0_api import run_metadata
+    return run_metadata.literature(site_id)
+
+
+CHUNGTHANG_LITERATURE_CITATIONS: list[dict[str, Any]] = list(_literature("teesta").get("citations", []))
 
 LITERATURE_COMPARISON_CAVEATS: list[str] = [
     "This is a comparison against other published model reconstructions, not against direct "
@@ -208,20 +184,26 @@ def build_literature_comparison(site_id: str, run_meta: dict[str, Any], data_dir
     """Point comparison of this run's own Chungthang POI output against literature
     reconstructions (see module docstring). `available: False` whenever the run's own outputs
     don't have what's needed -- never filled in with a guess."""
+    ref = _literature(site_id)
+    poi_name = ref.get("poi")
     result: dict[str, Any] = {
         "available": False,
-        "poi": "chungthang",
+        "kind": "literature_reconstruction_comparison",
+        "is_validation": False,
+        "poi": poi_name,
         "simulated": None,
-        "literature": CHUNGTHANG_LITERATURE_CITATIONS,
-        "caveats": LITERATURE_COMPARISON_CAVEATS,
+        "literature": list(ref.get("citations", [])),
+        "caveats": LITERATURE_COMPARISON_CAVEATS if ref else [],
     }
+    if not poi_name:
+        return result
     run_id = run_meta.get("run_id")
     if not run_id:
         return result
     timeseries_csv = data_dir / site_id / "runs" / run_id / "timeseries.csv"
     if not timeseries_csv.is_file():
         return result
-    poi = _poi_arrival_and_peak(timeseries_csv, "chungthang")
+    poi = _poi_arrival_and_peak(timeseries_csv, poi_name)
     if poi is None or poi["arrival_s_since_t0"] is None:
         return result
     simulated: dict[str, Any] = {

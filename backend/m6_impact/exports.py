@@ -396,6 +396,9 @@ def build_pdf_report(
     lines.append("")
     lines.append("Provenance")
     lines.append(f"  method: {provenance.get('method')}")
+    for key in ("scenario_id", "code_version", "input_forcing_note"):  # Feature 12
+        if provenance.get(key):
+            lines.append(f"  {key}: {provenance[key]}")
     if provenance.get("run_ids"):
         lines.append(f"  run_ids: {', '.join(provenance['run_ids'])}")
     if provenance.get("data_sources"):
