@@ -76,9 +76,18 @@
       "poi_grid_snapping": "One or more downstream points of interest show no inundation despite a wet cell nearby, most likely 90 m grid resolution missing the channel at that point rather than the location being unaffected.",
       "comparison_unavailable": "No paired solver comparison is available for this run.",
       "no_observed_extent": "No observed flood-extent outline has been digitized for this event; extent metrics (IoU/F1) are not available.",
-      "literature_comparison_only": "Point values below are compared with other published model reconstructions, not with direct field observations."
+      "literature_comparison_only": "Point values below are compared with other published model reconstructions, not with direct field observations.",
+      "emulator_not_validated": "This emulator has no LOOCV validation report; its skill is unknown.",
+      "demo_mode": "Demo-mode emulator: trained on a short demo library, confidence LOW.",
+      "outside_trained_range": "Inputs are outside the emulator's training range; this is extrapolation."
     },
-    "unknownCaveat": "This result includes a contract caveat."
+    "unknownCaveat": "This result includes a contract caveat.",
+    "whatifTitle": "Instant what-if (emulator)",
+    "whatifIntro": "Slider positions 0–10 map onto the trained emulator's own input range. Inputs without a slider are sampled across that range.",
+    "whatifRun": "Run what-if",
+    "whatifWidth": "Breach width position",
+    "whatifTime": "Failure time position",
+    "whatifPrediction": "Emulator prediction — not a solver run"
   },
   "impact": {
     "contractNotice": "Impact totals and warning rows come from the M0 impact contract for the latest completed flood query.",

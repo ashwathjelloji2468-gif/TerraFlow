@@ -152,10 +152,11 @@ def test_fallback_blocked_even_with_artifacts_present(data_dir):
     assert fb["available"] is False and fb["missing"] == [] and "loader" in fb["reason"]
 
 
-def test_slider_inputs_are_rejected_not_mapped(data_dir, trained_site, synthetic_emulator):
+def test_unmappable_slider_input_is_rejected(data_dir, trained_site, synthetic_emulator):
+    """Feature 8 maps sliders for emulator inputs (test_m5_whatif_slider.py); a slider for an
+    input the emulator does not have is still a 422, and the query is marked failed."""
     inputs = _exact(synthetic_emulator)
-    first = next(iter(inputs))
-    inputs[first] = {"type": "slider", "position": 5}
+    inputs["manning_multiplier"] = {"type": "slider", "position": 5}
     r = client.post(f"{API}/flood/query", json={"site_id": SITE, "model": "delft3d", "mode": "scenario", "inputs": inputs})
     assert r.status_code == 422 and r.json()["detail"]["error"]["code"] == "invalid_emulator_inputs"
     query_id = r.json()["detail"]["error"]["details"]["query_id"]
