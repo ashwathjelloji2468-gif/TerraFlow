@@ -581,10 +581,8 @@ def get_compare(site_id: SiteIdPath, scenario_id: str | None = Query(default=Non
             conn.close()
         if has_real_run:
             raise HTTPException(status_code=404, detail=mocks.error("artifact_not_found", f"No comparison artifact for registered scenario '{scenario_id}'.", {"scenario_id":scenario_id}))
-    ids = {"site_id": site_id}
-    if scenario_id:
-        ids["scenario_id"] = scenario_id
-    return _validated_json("compare.schema.json", mocks.mock_response("compare.example.json", **ids))
+    # Feature 11: never the contract example (available: true, zero metrics, made-up run IDs).
+    return _validated_json("compare.schema.json", api_compare.unavailable_response(site_id, scenario_id))
 
 
 # =============================================================================
@@ -672,10 +670,21 @@ def get_validation(site_id: SiteIdPath, event: str | None = Query(default=None))
                    "provenance": {"method": "none", "contract_version": "0.3.0",
                                   "validation_available": False}}
         return _validated_json("historical_validation.schema.json", payload)
+    # Feature 11: no validation report and no real run -> an honest empty report, never the contract
+    # example (n_runs 30, all-zero scores), which would read as a real validation result.
     if event:
-        payload = mocks.mock_response("historical_validation.example.json", site_id=site_id, event_id=event)
+        payload = {"contract_version": "0.3.0", "site_id": site_id, "event_id": event,
+                   "observed": {}, "predicted": {}, "metrics": {}, "comparison_domain": "none",
+                   "caveats": [{"id": "validation_unavailable", "severity": "warning",
+                                "text_key": "validation_unavailable"}],
+                   "provenance": {"method": "none", "contract_version": "0.3.0",
+                                  "validation_available": False}}
         return _validated_json("historical_validation.schema.json", payload)
-    payload = mocks.mock_response("validation.example.json", site_id=site_id)
+    payload = {"contract_version": "0.3.0", "site_id": site_id, "model": "delft3d", "n_runs": 0,
+               "per_run": [], "summary": {}, "baseline_linear": {},
+               "grade_thresholds_ref": "docs/m5_specs.md", "events": site_events,
+               "validation_available": False,
+               "note": "No emulator validation report (loocv.json) exists for this site yet."}
     return _validated_json("validation.schema.json", payload)
 
 

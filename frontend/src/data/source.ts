@@ -21,6 +21,9 @@ export {siteIdFromName, validateWizardSite, missingTerrainFields} from './site-c
 export type Awaiting = {status: 'awaiting'; reason: string};
 
 export type {SiteSummary} from './api';
+export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename} from './dashboard';
+export type {DashboardMetric, GeeStatus, ValidationStatus, CompareOption, CompareSection, MethodInfo} from './dashboard';
+import {exportFilename} from './dashboard';
 export type {SavedQuery} from '../offline/cache-store';
 export type {OfflineBundle} from '../offline/resource-list';
 
@@ -227,10 +230,11 @@ export async function getStyles(): Promise<Awaiting & {styles: unknown | null}> 
 }
 
 /** Contract §5 #18 — GET /export/{query_id}?format=. */
-export async function exportUrl(format: 'shp' | 'kml' | 'geojson' | 'pdf', queryId: string): Promise<{url: string}> {
+export async function exportUrl(format: 'shp' | 'kml' | 'geojson' | 'pdf', queryId: string, siteId = ''): Promise<{url: string; filename: string; mediaType: string | null}> {
   if (!queryId) throw new Error('A query_id is required to export flood results.');
   const response = await api.export(queryId, format);
-  return {url: URL.createObjectURL(await response.blob())};
+  const filename = exportFilename(response.headers.get('Content-Disposition'), siteId, queryId, format);
+  return {url: URL.createObjectURL(await response.blob()), filename, mediaType: response.headers.get('Content-Type')};
 }
 
 /** Contract §5.2 — POST /sites (Add a Dam). Builds a real site config from the wizard, posts it,

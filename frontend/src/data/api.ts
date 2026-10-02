@@ -82,8 +82,9 @@ export type ImpactResponse = {
 export type PairStatus = 'BLOCKED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 export type CompareResponse = {
   site_id: string; scenario_id: string;
-  sph_vs_delft3d: {available: boolean; domain: string; time_window_s: number; metrics: {iou?: number; f1?: number; f1_0_3?: number; depth_rmse_wet_m?: number; velocity_mae_ms?: number}; probes: Array<{poi_id: string; arrival_delft3d_s: number; arrival_sph_s: number; diff_s: number}>; layers: FloodQueryResponse['layers']; run_ids: string[]; status?: {solver_status: PairStatus; postprocess_status: PairStatus; comparison_status: PairStatus; validation_status: PairStatus; comparison_reason?: string | null; validation_reason?: string}};
-  emulator_vs_physics: {available: boolean; held_out_run_id: string | null; metrics: {iou?: number; depth_rmse_wet_m?: number; arrival_mae_s?: number}; layers: FloodQueryResponse['layers']};
+  sph_vs_delft3d: {available: boolean; domain: string; time_window_s: number; metrics: {iou?: number; f1?: number; f1_0_3?: number; depth_rmse_wet_m?: number; velocity_mae_ms?: number}; probes: Array<{poi_id: string; arrival_delft3d_s: number; arrival_sph_s: number; diff_s: number}>; layers: FloodQueryResponse['layers']; run_ids: string[]; status?: {solver_status: PairStatus; postprocess_status: PairStatus; comparison_status: PairStatus; validation_status: PairStatus; comparison_reason?: string | null; validation_reason?: string}; unavailable_reason?: string};
+  emulator_vs_physics: {available: boolean; held_out_run_id: string | null; metrics: {iou?: number; depth_rmse_wet_m?: number; arrival_mae_s?: number}; layers: FloodQueryResponse['layers']; unavailable_reason?: string};
+  comparison_available?: boolean;
   gp_vs_linear: {iou_median_gp?: number; iou_median_linear?: number; arrival_mae_s_gp?: number; arrival_mae_s_linear?: number}; when_to_use_key: string;
   caveats: Array<{id: string; severity: 'info' | 'warning' | 'critical'; text_key: string}>;
 };
@@ -123,6 +124,7 @@ export type ValidationResponse = {
   contract_version: string; site_id: string; model: 'delft3d' | 'sph'; n_runs: number;
   per_run: Array<Record<string, unknown>>; summary: Record<string, unknown>;
   baseline_linear: Record<string, unknown>; grade_thresholds_ref: string; events: string[];
+  validation_available?: boolean; synthetic_demo?: boolean; note?: string;
   synthetic_loocv?: {
     world: string; note: string; model?: string; n_runs?: number;
     summary?: Record<string, unknown>; baseline_linear?: Record<string, unknown>;

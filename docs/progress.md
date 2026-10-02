@@ -3081,3 +3081,29 @@ so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passe
 - Tests: `tests/m7_gee/test_monitoring.py`, `tests/m0_api/test_gee_monitoring.py`; manual real-GEE
   smoke `tests/m7_gee/test_real_gee_smoke.py` (skipped unless `TERRAFLOW_GEE_SMOKE=1`). Real Teesta did
   NOT reach Earth Engine from this sandbox (no `ee` package, no credentials) — run the smoke on the team machine.
+
+## 2026-10-02 — Feature 11: real-time dashboard, scenario comparison & GIS export
+- Backend (two demonstrated leaks fixed, no schema change): `GET /compare` no longer falls back to
+  `compare.example.json` (available: true, zero metrics, fictitious run IDs) — it returns an honest
+  unavailable payload (`api_compare.unavailable_response`, additive `unavailable_reason`,
+  `comparison_available: false`). `GET /validation` (LOOCV and `?event=`) no longer falls back to the
+  example reports — empty report with `validation_available: false`. Science code untouched.
+- Dashboard (`app.tsx`) now reads only canonical responses via `src/data/dashboard.ts` (re-exported by
+  `source.ts`): method label (M5 = "Emulator prediction", D-Flow FM keeps the MVP caveat), query
+  ID/status, area/depth/velocity/earliest arrival from FloodQuery+Impact, population range and
+  HIGH/POSSIBLE POIs from Impact, confidence, placeholders/caveats, GEE freshness card
+  (LIVE/CACHE/FALLBACK/NONE, partial), validation card (emulator/historical/observed + "model
+  comparison is not validation"). Missing values show "Unavailable", never 0. Legacy `result`/`wet`/
+  `pop` no longer feed the dashboard; the pipeline graphic is labelled architecture, not live status;
+  scenario count comes from the persisted design.
+- Compare: scenario selector from `GET /sites/{id}/design` (design, held-out, saved what-if rows),
+  selection passed as `?scenario_id=`; unavailable reasons shown; available comparison rasters render
+  from their backend URLs with models/scenario/bounds/unit/style. SPH-vs-D-Flow stays unavailable
+  without a real pair.
+- Export Centre: scenario, impact/comparison availability, caveats, and per-format contents derived
+  from the actual impact hazard layers; filename from the backend `Content-Disposition` (sanitised);
+  backend errors (e.g. 404 `query_not_found`) surfaced. Offline bundle also collects the selected
+  compare URL and comparison layer files.
+- Tests: `tests/m0_api/test_feature11_honest_fallbacks.py`; `frontend/scripts/test-dashboard.mjs`
+  (`npm run test:dashboard`). All synthetic fixtures; no real Teesta emulator, no real SPH pair, no
+  validation report exists yet, so those panels correctly show Unavailable.
