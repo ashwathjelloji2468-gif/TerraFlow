@@ -53,13 +53,9 @@ def _sha256(path: Path) -> str:
 
 
 def _code_version() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT, stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except Exception:
-        return "unknown"
-
+    """Delegates to `backend.shared.version` (Feature 12)."""
+    from backend.shared.version import code_version
+    return code_version()
 
 def _write_line_gpkg(path: Path, x_m: np.ndarray, y_m: np.ndarray, grid: CanonicalGrid, total_chainage_m: float) -> None:
     line = LineString(zip(x_m, y_m))

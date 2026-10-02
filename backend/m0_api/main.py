@@ -121,7 +121,12 @@ def _validate_request_body(schema_name: str, body: Any) -> None:
 # =============================================================================
 @app.get(f"{API}/health")
 def get_health() -> JSONResponse:
-    return _validated_json("health.schema.json", mocks.mock_response("health.example.json"))
+    # Feature 12: real versions, never the example's "mock-0.0.0".
+    from backend.shared.version import version_info
+    info = version_info()
+    code = info["code_version"] + ("-dirty" if info["code_dirty"] else "")
+    return _validated_json("health.schema.json", {"status": "ok", "contract_version": info["contract_version"],
+                                                  "code_version": code, "code_dirty": info["code_dirty"]})
 
 
 # =============================================================================
@@ -518,7 +523,8 @@ def get_compare(site_id: SiteIdPath, scenario_id: str | None = Query(default=Non
     # The existing Model Comparison page requests the site's default comparison
     # without a scenario parameter. Expose the real Teesta MVP pair there once
     # that sidecar exists; explicit scenario requests remain exact.
-    mvp_scenario = scenario_id or ("teesta_2023_mvp" if site_id == "teesta" else None)
+    from backend.m0_api import run_metadata
+    mvp_scenario = scenario_id or run_metadata.default_compare_scenario(site_id)  # config/registered_runs.yaml
     mvp_pair = registry.data_dir() / site_id / "compare" / (mvp_scenario or "") / "compare.json"
     if mvp_scenario and mvp_pair.is_file():
         return _validated_json("compare.schema.json", __import__("json").loads(mvp_pair.read_text()))
@@ -652,12 +658,16 @@ def get_validation(site_id: SiteIdPath, event: str | None = Query(default=None))
                    "observed": observed,
                    "predicted": ({"delft3d_direct": {"area_m2": predicted_area}} if predicted_area else {}),
                    "metrics": ({"delft3d_direct": extent_metrics} if extent_metrics else {}),
-                   "comparison_domain": "point comparison at Chungthang against literature reconstructions"
+                   "comparison_domain": f"point comparison at {literature.get('poi')} against literature reconstructions"
                                         if literature["available"] else "none",
                    "caveats": caveats,
                    "provenance": {"method": "real_run_vs_literature", "contract_version": "0.3.0",
                                   "run_id": real_run_meta.get("run_id"),
-                                  "validation_available": bool(observed["available"] or literature["available"])},
+                                  # Feature 12: only accepted OBSERVED data can make this validation.
+                                  # Literature values are modelled reconstructions -> comparison.
+                                  "validation_available": bool(observed["available"]),
+                                  "comparison_available": bool(literature["available"]),
+                                  "comparison_kind": "literature_reconstruction" if literature["available"] else None},
                    "literature_comparison": literature}
         return _validated_json("historical_validation.schema.json", payload)
     if has_real_run and event:
@@ -712,6 +722,56 @@ def _bounds_lonlat(bounds: list[list[float]] | None) -> list[list[float]] | None
     return [[west, east], [south, north]]
 
 
+def _export_provenance(query_result: dict, site_id: str, query_id: str, format: str) -> dict:  # noqa: A002
+    """Feature 12: one provenance block carried by every export format (GeoJSON `metadata`, KML
+    `ExtendedData`, `provenance.json` in the shapefile zip, PDF provenance lines)."""
+    from datetime import datetime, timezone
+
+    from backend.shared.version import version_info
+    prov = query_result.get("provenance", {}) or {}
+    params = prov.get("parameters", {}) or {}
+    flags = query_result.get("flags", {}) or {}
+    return {
+        "site_id": site_id, "query_id": query_id, "format": format,
+        "scenario_id": params.get("scenario_id") or prov.get("scenario_id"),
+        "method": query_result.get("method"), "run_ids": prov.get("run_ids", []),
+        "output_classification": prov.get("output_classification"),
+        "input_forcing_note": prov.get("input_forcing_note"),
+        "result_generated_at": prov.get("generated_at") or prov.get("created_at"),
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        **version_info(),
+        "confidence_overall": ((query_result.get("confidence", {}) or {}).get("overall") or {}).get("level"),
+        "has_placeholders": bool(flags.get("has_placeholders")),
+        "placeholder_fields": query_result.get("placeholder_fields", []),
+        "demo_mode": bool(flags.get("demo_mode")),
+        "caveats": [c.get("id") for c in query_result.get("caveats", [])],
+        "crs": "EPSG:4326", "units": "SI (m, m/s, s)",
+        "validation_status": "not validated against observed data",
+    }
+
+
+def _attach_export_provenance(format: str, content: bytes, meta: dict) -> bytes:  # noqa: A002
+    import io as _io
+    import json as _json
+    import zipfile as _zipfile
+    from xml.sax.saxutils import escape as _esc
+    if format == "geojson":
+        fc = _json.loads(content)
+        fc["metadata"] = meta
+        return _json.dumps(fc).encode()
+    if format == "kml":
+        text = content.decode("utf-8")
+        data = "".join(f'<Data name="{_esc(k)}"><value>{_esc(_json.dumps(v) if not isinstance(v, str) else v)}</value></Data>'
+                       for k, v in meta.items())
+        return text.replace("<Document>", f"<Document><ExtendedData>{data}</ExtendedData>", 1).encode("utf-8")
+    if format == "shp":
+        buf = _io.BytesIO(content)
+        with _zipfile.ZipFile(buf, "a", _zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("provenance.json", _json.dumps(meta, indent=2) + "\n")
+        return buf.getvalue()
+    return content
+
+
 @app.get(f"{API}/export/{{query_id}}")
 def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  # noqa: A002 - contract's param name
     if format not in _EXPORT_MEDIA_TYPES:
@@ -746,6 +806,9 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
         provenance = query_result.get("provenance", {})
         run_ids = provenance.get("run_ids", [])
         confidence_level = (query_result.get("confidence", {}) or {}).get("extent", {}).get("level")
+        export_meta = _export_provenance(query_result, site_id, query_id, format)
+        if format == "pdf":
+            provenance = {**provenance, **{k: export_meta[k] for k in ("code_version", "scenario_id") if export_meta.get(k)}}
         # The single deterministic extent a direct run produces is placed in the POSSIBLE
         # bucket for exposure purposes (`real_impact.py`'s own documented convention, echoed in
         # its `data_coverage_notes`); the emulator path isn't reachable for any registered
@@ -862,6 +925,7 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
                 map_png_bytes=map_png_bytes, map_bounds_latlng=map_bounds, map_label=map_label,
             )
             filename = f"{site_id}_{query_id}_report.pdf"
+        content = _attach_export_provenance(format, content, export_meta)
         return Response(content=content, media_type=_EXPORT_MEDIA_TYPES[format], headers={"Content-Disposition": f'attachment; filename="{filename}"'})
     # No registered query, real or otherwise, exists for this id: a real site's export must
     # never be fabricated content branded with someone's actual query_id (mock_files' shapefile/
@@ -961,8 +1025,10 @@ def get_scene3d(
     except ValueError as exc:
         raise HTTPException(status_code=413, detail=mocks.error("scene_too_large", str(exc))) from exc
     if payload is None:
-        payload = mocks.mock_response("scene3d.example.json", query_id=query_id)
-        payload["frame"]["vertical_exaggeration"] = vertical_exaggeration
+        # Feature 12: no real terrain/flood surface for this query -> honest 404, never the example.
+        raise HTTPException(status_code=404, detail=mocks.error(
+            "scene_unavailable", f"No 3D scene artifacts (terrain + flood surface) exist for query '{query_id}'.",
+            {"query_id": query_id}))
     return _validated_json("scene3d.schema.json", payload)
 
 
@@ -1117,13 +1183,6 @@ def get_file(path: str) -> Response:
         import json as _json
         return Response(content=_json.dumps({"available": False}).encode(), media_type="application/json")
 
-    if path.endswith(".png"):
-        return Response(content=mock_files.mock_png(), media_type="image/png")
-    if path.endswith(".geojson"):
-        import json
-
-        return Response(content=json.dumps(mocks.mock_response("geojson_feature_collection.example.json")).encode(), media_type="application/geo+json")
-    if path.endswith(".bin"):
-        # Mock float32 payload for Scene3D terrain/flood_surface binaries (contract §5.9).
-        return Response(content=b"\x00\x00\x00\x00" * 16, media_type="application/octet-stream")
-    raise HTTPException(status_code=404, detail=mocks.error("file_not_found", f"No mock file for '{path}'."))
+    # Feature 12: an unmatched or missing artifact is a 404 -- never placeholder PNG/GeoJSON/bytes,
+    # which would make a missing result look like a real one.
+    raise HTTPException(status_code=404, detail=mocks.error("file_not_found", f"No artifact at '{path}'.", {"path": path}))

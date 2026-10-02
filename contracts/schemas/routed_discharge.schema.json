@@ -17,7 +17,7 @@
     "routing_method": {"type": "string", "minLength": 1},
     "section": {"type": "object", "required": ["type", "coordinates", "crs"], "properties": {"type": {"const": "LineString"}, "coordinates": {"type": "array", "minItems": 2, "items": {"type": "array", "minItems": 2, "items": {"type": "number"}}}, "crs": {"type": "string"}}, "additionalProperties": true},
     "provenance": {"type": "object", "minProperties": 1},
-    "validation_status": {"enum": ["artifact_validated", "blocked", "failed"]}
+    "validation_status": {"enum": ["artifact_schema_checked", "artifact_validated", "blocked", "failed"]}
   },
   "additionalProperties": false
 }

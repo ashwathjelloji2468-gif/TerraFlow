@@ -284,15 +284,9 @@ def _weir_prereqs(dam: Dam) -> tuple[storage_mod.StorageCurve | None, float | No
 
 
 def _code_version() -> str:
-    try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
-                              text=True, cwd=Path(__file__).resolve().parents[2], timeout=5)
-        if out.returncode == 0:
-            return out.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return "unknown"
-
+    """Delegates to `backend.shared.version` (Feature 12)."""
+    from backend.shared.version import code_version
+    return code_version()
 
 def hydrograph_for_dam(dam: Dam, params: dict) -> Hydrograph:
     """Build a `Hydrograph` for one `Dam` from scenario `params` (see module docstring)."""

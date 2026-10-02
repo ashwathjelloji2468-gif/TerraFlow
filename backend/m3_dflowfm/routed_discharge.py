@@ -19,7 +19,7 @@ SCHEMA = Path(__file__).resolve().parents[2] / "contracts/schemas/routed_dischar
 def write_routed_discharge(output_dir: str | Path, *, site_id: str, scenario_id: str,
                            source_run_id: str, t_s, q_m3s,
                            routing_method: str, section: dict,
-                           provenance: dict, validation_status: str = "artifact_validated") -> tuple[Path, Path]:
+                           provenance: dict, validation_status: str = "artifact_schema_checked") -> tuple[Path, Path]:
     """Write `timeseries.csv` and provenance sidecar after extraction from an M3 result.
 
     `section` must name the cross-section geometry/CRS and `provenance` the source map/history

@@ -62,3 +62,22 @@ export function collectResourceUrls(bundle: OfflineBundle): string[] {
 
   return Array.from(urls);
 }
+
+/** Feature 12: the provenance recorded with an offline save, read only from the bundle's own
+ * backend responses (nothing inferred). Keeps cache/fallback/placeholder state explicit. */
+export function offlineProvenance(bundle: OfflineBundle): Record<string, unknown> {
+  const prov = (bundle.floodQuery.provenance ?? {}) as Record<string, any>;
+  return {
+    site_id: bundle.siteId, query_id: bundle.floodQuery.query_id, method: bundle.floodQuery.method,
+    scenario_id: prov.parameters?.scenario_id ?? prov.scenario_id ?? null, run_ids: prov.run_ids ?? [],
+    output_classification: prov.output_classification ?? null,
+    result_generated_at: prov.generated_at ?? prov.created_at ?? null,
+    code_version: prov.code_version ?? null, contract_version: bundle.floodQuery.contract_version,
+    has_placeholders: !!bundle.floodQuery.flags?.has_placeholders, demo_mode: !!bundle.floodQuery.flags?.demo_mode,
+    caveats: bundle.floodQuery.caveats.map(c => c.id),
+    impact_available: !!bundle.impact,
+    compare_scenario_id: bundle.compare?.scenario_id ?? null,
+    gee_source: bundle.gee ? (bundle.gee.data_available === false ? 'none' : bundle.gee.source) : null,
+    validation_available: bundle.validation ? bundle.validation.validation_available === true : null,
+  };
+}

@@ -1,0 +1,23 @@
+# Feature 12: published literature reconstruction values used for historical COMPARISON (never
+# validation -- they are modelled reconstructions, not field observations) on the Validation page.
+# Moved verbatim from backend/m0_api/validation_helpers.py; quoted from docs/data_sources.md
+# src_044/src_045. A site with no entry here gets no literature comparison.
+sites:
+  teesta:
+    poi: chungthang
+    citations:
+      - source_id: src_044
+        citation: "Sikkim 2023 flood reconstruction and cascade impacts (https://eprints.whiterose.ac.uk/id/eprint/224098/)"
+        quantity: arrival_time_ist
+        value: "2023-10-04T00:30:00+05:30"
+        note: "Paper's reconstructed arrival at Chungthang. A modelled reconstruction, not a direct field observation of the event."
+      - source_id: src_044
+        citation: "Sikkim 2023 flood reconstruction and cascade impacts (https://eprints.whiterose.ac.uk/id/eprint/224098/)"
+        quantity: peak_discharge_m3s
+        value: 5340.0
+        note: "Paper's modelled peak discharge at Chungthang. A modelled reconstruction, not a direct field observation of the event."
+      - source_id: src_045
+        citation: "Gaikwad, Tiwari & Goswami (2025), Natural Hazards, doi:10.1007/s11069-025-07350-9"
+        quantity: peak_discharge_m3s
+        value: 7355.0
+        note: "Paper's modelled peak discharge at Chungthang for the actual event reconstruction. This same figure was already used as this run's own upstream forcing target (see forcing_provenance_path), so it is not an independent check on this run's output."

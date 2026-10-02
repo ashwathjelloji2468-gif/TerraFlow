@@ -1,0 +1,24 @@
+# Feature 12: per-run / per-site runtime metadata that used to be hardcoded in backend/m0_api
+# (real_query.py, real_impact.py, real_timeline.py, main.py, validation_helpers.py) and the
+# frontend. A run's own `run_meta.json` may set the same keys (`terrain_site_id`, `forcing_files`,
+# `dam_id`, `input_forcing_note`) and then wins over this file. A run or site not listed here uses
+# the generic defaults: its own `data/<site_id>/terrain/`, `inputs/<scenario_id>_forcing.csv` in its
+# case directory, the site config's first dam, and no site-specific caveat text.
+# Paths are relative to the data directory (registry.data_dir()), never to the process cwd.
+
+registered_runs:
+  teesta_2023_mvp__delft3d:
+    site_id: teesta
+    # The run's mesh bed levels came from the frozen teesta_pilot 90 m DEM (docs/progress.md
+    # 2026-09-27), so terrain diagnostics and POIs are read from that site's terrain folder.
+    terrain_site_id: teesta_pilot
+    forcing_files: [teesta_mvp/inputs/teesta_2023_mvp_forcing.csv]
+    dam_id: south_lhonak
+    input_forcing_note: "MVP reconstructed South Lhonak forcing · real D-Flow FM output · not scientifically validated."
+
+sites:
+  teesta:
+    # Scenario served by GET /compare/teesta when no scenario_id is given, and by the dashboard's
+    # registered-run demo button (frontend reads the same values from /sites/{id} is not possible
+    # without a contract change, so frontend/src/content/site_runtime.json mirrors them).
+    default_compare_scenario: teesta_2023_mvp

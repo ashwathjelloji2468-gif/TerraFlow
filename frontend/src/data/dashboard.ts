@@ -11,11 +11,18 @@ export function methodInfo(q: FloodQueryResponse | null): MethodInfo {
   if (!q) return {label: 'No query yet', kind: 'none', detail: 'Run a query to see results.'};
   switch (q.method) {
     case 'gp_emulator': return {label: 'Emulator prediction (M5)', kind: 'emulator_prediction', detail: 'Gaussian-process emulator prediction, not a solver run.'};
-    case 'delft3d_direct': return {label: 'D-Flow FM solver run', kind: 'solver_run', detail: 'Real D-Flow FM output · MVP reconstructed forcing · not scientifically validated.'};
-    case 'sph_direct': return {label: 'DualSPHysics solver run', kind: 'solver_run', detail: 'Real DualSPHysics output.'};
+    case 'delft3d_direct': return {label: 'D-Flow FM solver run', kind: 'solver_run', detail: directDetail(q, 'D-Flow FM')};
+    case 'sph_direct': return {label: 'DualSPHysics solver run', kind: 'solver_run', detail: directDetail(q, 'DualSPHysics')};
     case 'empirical_fallback': return {label: 'Empirical fallback', kind: 'fallback', detail: 'Empirical breach + HAND routing; no trained emulator.'};
     default: return {label: String(q.method), kind: 'none', detail: ''};
   }
+}
+
+/** Feature 12: a direct solver run's caveat comes from its own provenance (`input_forcing_note`,
+ * e.g. the Teesta MVP's reconstructed forcing), never from a hardcoded site string. */
+export function directDetail(q: FloodQueryResponse, solver: string): string {
+  const note = (q.provenance as {input_forcing_note?: string | null})?.input_forcing_note;
+  return note || `Real ${solver} solver output · not validated against observed data.`;
 }
 
 /** A finite estimate value, else null (never a substituted zero). */
@@ -65,12 +72,16 @@ export function geeStatus(gee: GeeLayers | null): GeeStatus {
     partial: !!gee.partial, fetchedAt: gee.fetched_at || null};
 }
 
-export type ValidationStatus = {emulator: boolean; historical: boolean; observed: boolean; note: string};
+export type ValidationStatus = {emulator: boolean; historical: boolean; observed: boolean; literatureComparison: boolean; note: string};
 export function validationStatus(v: ValidationResponse | null, h: HistoricalValidationResponse | null): ValidationStatus {
   const emulator = !!v && v.validation_available !== false && !v.synthetic_demo && v.n_runs > 0 && v.per_run.length > 0;
-  const historical = !!h && (h.provenance as {validation_available?: boolean})?.validation_available === true;
   const observed = !!h && h.observed?.available === true;
-  return {emulator, historical, observed,
+  // Feature 12: historical VALIDATION needs accepted observed data; literature reconstructions are a
+  // comparison and can never make this true, whatever the backend flag says.
+  const historical = observed && (h!.provenance as {validation_available?: boolean})?.validation_available === true;
+  const literatureComparison = !!h && ((h.provenance as {comparison_available?: boolean})?.comparison_available === true
+    || (h as unknown as {literature_comparison?: {available?: boolean}}).literature_comparison?.available === true);
+  return {emulator, historical, observed, literatureComparison,
     note: 'Model-to-model comparison (SPH vs D-Flow FM, emulator vs solver, GP vs linear) is not field validation.'};
 }
 
@@ -118,4 +129,21 @@ export function exportFilename(disposition: string | null, siteId: string, query
   const m = disposition?.match(/filename="?([^";]+)"?/i);
   const raw = m?.[1] ?? `${siteId}_${queryId}.${format === 'shp' ? 'zip' : format}`;
   return raw.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
+export type StatusChip = {key: 'validation' | 'comparison' | 'simulation' | 'emulator' | 'monitoring'; label: string; state: string; ok: boolean};
+/** Feature 12: five separate, never-conflated status chips (validation is not comparison, a
+ * simulation is not an emulator prediction, cached monitoring is not live). */
+export function statusChips(q: FloodQueryResponse | null, c: CompareResponse | null, v: ValidationResponse | null,
+  h: HistoricalValidationResponse | null, gee: GeeLayers | null): StatusChip[] {
+  const val = validationStatus(v, h), cmp = compareSections(c), g = geeStatus(gee), m = methodInfo(q);
+  const validated = val.emulator || val.historical;
+  const comparisonOk = cmp.sph.available || cmp.emulator.available || cmp.gpLinear || val.literatureComparison;
+  return [
+    {key: 'validation', label: 'Validation', state: validated ? 'Available' : 'Validation unavailable', ok: validated},
+    {key: 'comparison', label: 'Comparison', state: comparisonOk ? 'Comparison available (not validation)' : 'Comparison unavailable', ok: comparisonOk},
+    {key: 'simulation', label: 'Simulation', state: m.kind === 'solver_run' ? `${m.label} available` : 'No solver run for this query', ok: m.kind === 'solver_run'},
+    {key: 'emulator', label: 'Emulator', state: m.kind === 'emulator_prediction' ? 'Emulator prediction available' : 'No emulator prediction', ok: m.kind === 'emulator_prediction'},
+    {key: 'monitoring', label: 'Monitoring', state: g.label === 'UNAVAILABLE' || g.label === 'NONE' ? 'Monitoring unavailable' : `Monitoring ${g.label}`, ok: g.label === 'LIVE' || g.label === 'CACHE'},
+  ];
 }

@@ -18,5 +18,5 @@
     "source_map": "fixture-controlled-m3-output",
     "synthetic": true
   },
-  "validation_status": "artifact_validated"
+  "validation_status": "artifact_schema_checked"
 }

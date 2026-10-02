@@ -501,10 +501,10 @@ def test_get_flood_timeline_frame_png_high_and_possible_differ(data_dir):
     assert high.content != possible.content
 
 
-def test_get_flood_timeline_frame_png_falls_back_to_mock_when_no_query():
+def test_get_flood_timeline_frame_png_is_404_when_no_query():
+    # Feature 12: a missing artifact is a 404, never a placeholder PNG.
     r = client.get(f"{API}/files/{KNOWN_SITE}/queries/{QUERY_ID}/timeline/median_t300.png")
-    assert r.status_code == 200
-    assert r.content == mock_files.mock_png()
+    assert r.status_code == 404
 
 
 def test_get_flood_timeline_frame_path_rejects_traversal(data_dir):
@@ -669,10 +669,9 @@ def test_get_compare_diff_png_renders_and_caches(data_dir):
     assert (compare_dir / "teesta_s005__delft3d__depth_diff.png").is_file()
 
 
-def test_get_compare_diff_png_falls_back_to_mock_when_no_sidecar():
+def test_get_compare_diff_png_is_404_when_no_sidecar():
     r = client.get(f"{API}/files/{KNOWN_SITE}/emulator/delft3d/validation/compare/nope__delft3d__depth_diff.png")
-    assert r.status_code == 200
-    assert r.content == mock_files.mock_png()
+    assert r.status_code == 404
 
 
 # =============================================================================
@@ -783,7 +782,11 @@ def test_get_historical_validation_real_event_literature_comparison(data_dir):
     assert body["literature_comparison"]["available"] is True
     assert body["literature_comparison"]["simulated"]["arrival_s_since_t0"] == 22920.0
     assert "arrival_time_ist_estimate" in body["literature_comparison"]["simulated"]
-    assert body["provenance"]["validation_available"] is True
+    # Feature 12: literature reconstructions are a comparison, never validation.
+    assert body["provenance"]["validation_available"] is False
+    assert body["provenance"]["comparison_available"] is True
+    assert body["provenance"]["comparison_kind"] == "literature_reconstruction"
+    assert body["literature_comparison"]["is_validation"] is False
     assert any(c["id"] == "no_observed_extent" for c in body["caveats"])
     assert any(c["id"] == "literature_comparison_only" for c in body["caveats"])
 
@@ -916,7 +919,7 @@ def test_export_kml_covers_every_part_of_a_multipolygon_extent_with_holes(data_d
 # =============================================================================
 # 19-20. gee
 # =============================================================================
-def test_get_gee():
+def test_get_gee(data_dir):  # Feature 12: isolated data dir, never the repo's data/
     r = client.get(f"{API}/gee/{KNOWN_SITE}")
     assert r.status_code == 200
     body = r.json()
@@ -924,7 +927,7 @@ def test_get_gee():
     assert body["site_id"] == KNOWN_SITE
 
 
-def test_refresh_gee(monkeypatch):
+def test_refresh_gee(data_dir, monkeypatch):  # Feature 12: isolated data dir
     # Forces the existing-cache fallback path (contract §4.8) regardless of whether this machine
     # happens to have real Earth Engine credentials set up -- this is a fast, offline unit test,
     # not a live-EE integration test (M7's own live fetch is exercised manually, CLAUDE.md rule 2).
@@ -947,21 +950,18 @@ def test_get_gee_unknown_site_404():
 # =============================================================================
 # 21. scene3d
 # =============================================================================
-def test_get_scene3d():
+def test_get_scene3d_without_artifacts_is_404():
+    # Feature 12: no example scene served as real.
     r = client.get(f"{API}/scene3d/{QUERY_ID}")
-    assert r.status_code == 200
-    body = r.json()
-    assert_matches("scene3d.schema.json", body)
-    assert body["query_id"] == QUERY_ID
+    assert r.status_code == 404 and r.json()["detail"]["error"]["code"] == "scene_unavailable"
 
 
 # =============================================================================
 # 22. files
 # =============================================================================
-def test_get_file_png():
+def test_get_file_png_missing_is_404():
     r = client.get(f"{API}/files/teesta/queries/{QUERY_ID}/layers/p_inundation.png")
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/png"
+    assert r.status_code == 404
 
 
 def test_get_file_geojson():

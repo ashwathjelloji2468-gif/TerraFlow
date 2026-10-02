@@ -19,6 +19,7 @@ from rasterio.enums import Resampling
 from shapely.geometry import shape
 from shapely.ops import unary_union
 
+from backend.m0_api import run_metadata
 from backend.m0_api import dem_diagnostics
 from backend.m6_impact import loss as m6_loss
 from backend.shared.grid import FLOAT_NODATA, CanonicalGrid
@@ -171,9 +172,7 @@ def build_impact(site_dir: Path, query_dir: Path) -> dict:
     # Warning rows use only actual M3 history station values. The 0/1 field
     # denotes inundation in this one run, not a probability estimate.
     poi_rows = _direct_rows(run_dir)
-    poi_path = (site_dir.parent / "teesta_pilot" / "terrain" / "pois.gpkg"
-                if site_dir.name == "teesta" and run_id == "teesta_2023_mvp__delft3d"
-                else site_dir / "terrain" / "pois.gpkg")
+    poi_path = run_metadata.terrain_dir(site_dir, run_id) / "pois.gpkg"
     warning_table, not_affected, snapped_pois = [], 0, []
     if poi_path.is_file():
         pois = gpd.read_file(poi_path).to_crs(depth_crs)

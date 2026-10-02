@@ -23,15 +23,9 @@ CONTRACT_VERSION = "0.3.0"
 
 
 def _code_version() -> str:
-    try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
-                              text=True, cwd=Path(__file__).resolve().parents[2], timeout=5)
-        if out.returncode == 0:
-            return out.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return "unknown"
-
+    """Delegates to `backend.shared.version` (Feature 12)."""
+    from backend.shared.version import code_version
+    return code_version()
 
 def _blocked_missing(code: str, unit: str, missing: list[str]) -> MethodResult:
     return MethodResult.blocked(code, unit, f"missing input(s): {', '.join(missing)} (status: placeholder)")
