@@ -70,7 +70,10 @@ export type ImpactResponse = {
     hydropower: Array<{name: string; zone: 'high' | 'possible'; depth_m: Estimate}>;
   };
   loss_inr: Estimate & {by_asset_class?: Record<string, Estimate>; assumptions?: string[]};
-  warning_table: Array<{poi_id: string; name: string; kind: string; chainage_m: number; zone: 'high' | 'possible'; p_inundation: number; arrival_s: Estimate; depth_m: Estimate; velocity_ms: Estimate}>;
+  warning_table: Array<{poi_id: string; name: string; kind: string; chainage_m: number; zone: 'high' | 'possible'; p_inundation: number; arrival_s: Estimate; depth_m: Estimate; velocity_ms: Estimate; lead_time_s?: Estimate; arrives_before_detection?: boolean; depth_class?: string | null}>;
+  population_display?: {low: string | null; high: string | null; source: string; year: number | null; sig_figs: number; floor: number; by_arrival_band: Array<{band: string; from_s: number; to_s: number | null; high: number; possible: number}>};
+  zone_thresholds?: {high_p: number; possible_p: number; probability_basis: string};
+  hazard_layers?: Record<string, {path: string | null; status?: string; reason?: string; [k: string]: unknown}>;
   not_affected_poi_count: number; data_coverage_notes: string[];
   has_placeholders: boolean; placeholder_fields: string[];
   caveats: Array<{id: string; severity: 'info' | 'warning' | 'critical'; text_key: string}>;

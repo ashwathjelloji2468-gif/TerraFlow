@@ -478,6 +478,22 @@ def get_impact(query_id: QueryIdPath) -> JSONResponse:
         result_path = site_dir / "queries" / query_id / "result.json"
         if result_path.is_file():
             result = __import__("json").loads(result_path.read_text())
+            if result.get("method") == "gp_emulator":
+                # Feature 9: impact from the persisted M5 query artifacts (never re-runs M5).
+                from backend.m6_impact.impact import build_m5_impact
+                try:
+                    impact = build_m5_impact(site_dir, result_path.parent)
+                except (FileNotFoundError, ValueError) as exc:
+                    raise HTTPException(status_code=404, detail=mocks.error(
+                        "artifact_not_found", f"Cannot derive impact from the persisted M5 query: {exc}",
+                        {"query_id": query_id})) from exc
+                schemas.validate("impact.schema.json", impact)
+                path.write_text(__import__("json").dumps(impact, indent=2) + "\n", encoding="utf-8")
+                return _validated_json("impact.schema.json", impact)
+            if result.get("method") == "sph_direct":
+                raise HTTPException(status_code=404, detail=mocks.error(
+                    "impact_unavailable", "Impact is not defined for near-field SPH results: their rasters are on "
+                    "the near-field grid, not the far-field exposure grid.", {"query_id": query_id}))
             if result.get("method") == "delft3d_direct":
                 try:
                     impact = real_impact.build_impact(site_dir, result_path.parent)
@@ -728,8 +744,29 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
         zone = "possible" if method.endswith("_direct") else None
 
         impact_path = query_dir / "impact.json"
+        if method == "gp_emulator" and not impact_path.is_file():
+            # Feature 9: an M5 export uses the M5 impact (zones, warning table, hazard layers).
+            from backend.m6_impact.impact import build_m5_impact
+            try:
+                built = build_m5_impact(registry.data_dir() / site_id, query_dir)
+                schemas.validate("impact.schema.json", built)
+                impact_path.write_text(json.dumps(built, indent=2) + "\n", encoding="utf-8")
+            except (FileNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail=mocks.error(
+                    "artifact_not_found", f"Cannot derive impact for export: {exc}", {"query_id": query_id})) from exc
         impact = json.loads(impact_path.read_text()) if impact_path.is_file() else None
         warning_table = (impact or {}).get("warning_table", [])
+        if method == "gp_emulator":
+            report_label = "Emulator (M5) prediction"
+            # Zones are the impact's own HIGH/POSSIBLE polygons (config/impact.yaml thresholds on
+            # the persisted p_inundation), one feature per zone carrying its `zone` property.
+            zone = None
+            extent = json.loads((query_dir / "impact_zones.geojson").read_text())
+        hazard_fcs = {}
+        for key in ("depth_classes", "isochrones"):
+            rel = (((impact or {}).get("hazard_layers") or {}).get(key) or {}).get("path")
+            if method == "gp_emulator" and rel and (query_dir / rel).is_file():
+                hazard_fcs[key] = json.loads((query_dir / rel).read_text())
 
         poi_locations: dict[str, tuple[float, float]] = {}
         site_name = site_id
@@ -739,9 +776,21 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
             site_name = site_config.site.name
         except (SiteConfigError, FileNotFoundError):
             pass
+        if method == "gp_emulator" and (registry.data_dir() / site_id / "terrain" / "pois.gpkg").is_file():
+            # M5 warning rows are sampled at M1's snapped POIs (terrain/pois.gpkg); place them there.
+            import geopandas as gpd
+            snapped = gpd.read_file(registry.data_dir() / site_id / "terrain" / "pois.gpkg").to_crs(epsg=4326)
+            poi_locations = {str(r["poi_id"]).split("__poi__")[-1]: (r["geometry"].x, r["geometry"].y)
+                             for r in snapped.to_dict("records")}
 
         if format == "geojson":
-            content, filename = json.dumps(extent).encode(), f"{site_id}_{query_id}_extent.geojson"
+            out_fc = extent
+            if method == "gp_emulator":
+                out_fc = {"type": "FeatureCollection", "features":
+                          [{**f, "properties": {**f["properties"], "layer": "zone"}} for f in extent.get("features", [])]
+                          + [{**f, "properties": {**f["properties"], "layer": key}}
+                             for key, fc in hazard_fcs.items() for f in fc.get("features", [])]}
+            content, filename = json.dumps(out_fc).encode(), f"{site_id}_{query_id}_extent.geojson"
         elif format == "kml":
             description = None
             summary = query_result.get("summary", {})
@@ -756,9 +805,23 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
             # the Leaflet map, so the KML doesn't invent its own colour scheme.
             zone_fill, zone_opacity = {"high": ("#d7263d", 0.65), "possible": ("#f4a259", 0.35)}.get(
                 zone, ("#f4a259", 0.35))
-            kml_doc = m6_exports.extent_geojson_to_kml(extent, f"{report_label} {query_id}",
-                                                         fill_hex=zone_fill, opacity=zone_opacity,
-                                                         description=description)
+            if method == "gp_emulator":
+                folders = []
+                for zone_name, (fill, opacity) in (("high", ("#d7263d", 0.65)), ("possible", ("#f4a259", 0.35))):
+                    part = {"type": "FeatureCollection",
+                            "features": [f for f in extent.get("features", []) if f["properties"].get("zone") == zone_name]}
+                    doc = m6_exports.extent_geojson_to_kml(part, zone_name.upper(), fill_hex=fill, opacity=opacity,
+                                                           description=description)
+                    folders.append(doc.split("<Document>", 1)[1].rsplit("</Document>", 1)[0]
+                                   .replace("extentStyle", f"extentStyle_{zone_name}")
+                                   .replace("<name>Flood extent</name>", f"<name>{zone_name.upper()} zone</name>")
+                                   .replace(f"<name>{zone_name.upper()}</name>", "", 1))
+                kml_doc = (f'<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>{report_label} {query_id}</name>'
+                           + "".join(folders) + "</Document></kml>")
+            else:
+                kml_doc = m6_exports.extent_geojson_to_kml(extent, f"{report_label} {query_id}",
+                                                             fill_hex=zone_fill, opacity=zone_opacity,
+                                                             description=description)
             pois_folder = m6_exports.pois_kml_folder(warning_table, poi_locations)
             if pois_folder:
                 kml_doc = kml_doc.replace("</Document></kml>", pois_folder + "</Document></kml>")
@@ -769,7 +832,7 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
                 extent, site_id=site_id, query_id=query_id, run_ids=run_ids, method=method,
                 zone=zone, confidence_level=confidence_level, has_placeholders=has_placeholders,
                 caveats=caveats, summary=query_result.get("summary", {}), warning_table=warning_table,
-                poi_locations=poi_locations,
+                poi_locations=poi_locations, extra_layers=hazard_fcs or None,
             )
             filename = f"{site_id}_{query_id}_extent.zip"
         else:

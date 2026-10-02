@@ -1,6 +1,14 @@
 # Impact outputs — defaults (DRAFT)
 
 Status: draft for team review. Each default has a **Why** so it can be changed deliberately.
+
+**Implementation status (2026-10-02, Feature 9):** the header-block defaults now live in `config/impact.yaml`
+(`impact:`) and drive `backend/m6_impact/impact.py` and `exports.py` for M5 (`gp_emulator`) queries: zones,
+population range, depth classes, P10 isochrones, lead time. Not implemented: the D·V layer (thresholds still
+unverified), the low-confidence one-zone downgrade (M5 persists no per-cell confidence), the scenario-mode
+breach-pair rule (M5 runs one scenario; scenario-mode zones use the GP's own uncertainty, stated in outputs),
+the village table and non-resident populations. §5's 'both factors are still placeholders' is historical:
+`config/impact.yaml` now holds sourced FX/index/road-width values.
 Related: `docs/m5_spec.md` (thresholds, query modes, confidence rule), `sites/<site_id>.yaml`
 (points of interest).
 
