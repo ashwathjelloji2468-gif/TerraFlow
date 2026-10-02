@@ -865,45 +865,77 @@ def export_query(query_id: QueryIdPath, format: str = Query(...)) -> Response:  
 # =============================================================================
 # 19-20. GET /gee/{site_id}, POST /gee/{site_id}/refresh
 # =============================================================================
-def _gee_layers_or_mock(site_id: str) -> dict:
-    """Real cache (`data/<site_id>/gee/`) once M7 has actually fetched something for this site
-    (`gee_meta.json` exists, so `fetched_at` is set); otherwise the contract's mock, same as every
-    other still-mocked endpoint (module docstring)."""
-    layers = gee_cache.load_layers(site_id, data_dir=registry.data_dir())
-    if layers.get("fetched_at") is None:
-        return mocks.mock_response("gee_layers.example.json", site_id=site_id)
-    return layers
+def _gee_layers(site_id: str) -> dict:
+    """The on-disk cache (`data/<site_id>/gee/`) as `GeeLayers`. When M7 has never produced
+    anything for the site, this is an honest *empty* payload (`data_available: false`, no series,
+    no polygon) -- never the contract's example mock, whose made-up lake polygon would otherwise
+    be presented as cached satellite data."""
+    return gee_cache.load_layers(site_id, data_dir=registry.data_dir())
 
 
 @app.get(f"{API}/gee/{{site_id}}")
 def get_gee(site_id: SiteIdPath) -> JSONResponse:
     _require_known_site(site_id)
-    return _validated_json("gee_layers.schema.json", _gee_layers_or_mock(site_id))
+    return _validated_json("gee_layers.schema.json", _gee_layers(site_id))
 
 
 @app.post(f"{API}/gee/{{site_id}}/refresh")
 def refresh_gee(site_id: SiteIdPath) -> JSONResponse:
     """Tries a live Earth Engine fetch (lake area/rainfall via `gee_fetch.run`, event imagery via
-    `gee_imagery.refresh`); either falls back to the existing cache on its own on any failure --
-    missing/expired credentials, no network, no usable scene -- so this handler never 500s over a
-    live-fetch problem, only over `site_id` not being configured at all."""
+    `gee_imagery.refresh`). Each product falls back to the cache on its own -- missing/expired
+    credentials, no network, no usable scene -- so this handler never 500s over a live-fetch
+    problem, only over `site_id` not being configured at all.
+
+    Top-level `source` is `live` only if Earth Engine actually returned at least one product in
+    THIS request; `partial` is set when some products came back live and others did not. Per-
+    product outcomes are in `products[*].source` and the additive `refresh` block. Error strings
+    are sanitised (`gee_cache.safe_error`): no paths, keys or tokens."""
     _require_known_site(site_id)
     data_dir = registry.data_dir()
-    live_ok = False
+    attempted_at = registry.utc_now_dt().strftime("%Y-%m-%dT%H:%M:%SZ")
+    outcome: dict[str, str] = {}
+    errors: list[str] = []
+    credentials_ok = False
     try:
         cfg = load_site_config(site_id)
         provider = gee_fetch.best_effort_provider()
+        credentials_ok = not isinstance(provider, gee_fetch._CacheOnlyProvider)
         lake_result = gee_fetch.run(site_id, provider=provider, data_dir=data_dir)
-        img_result = gee_imagery.refresh(site_id, cfg=cfg, data_dir=data_dir)
-        live_ok = not lake_result.errors and img_result.source == "live"
+        outcome.update(lake_result.products)
+        errors += lake_result.errors
+        if credentials_ok:
+            img_result = gee_imagery.refresh(site_id, cfg=cfg, data_dir=data_dir)
+            outcome["imagery"] = img_result.source
+            errors += img_result.errors
+        else:
+            outcome["imagery"] = "cache"
+            errors.append("imagery: Earth Engine unavailable (not initialised); cached imagery kept")
     except SiteConfigError as e:
-        log.warning("refresh_gee: site config error for '%s', serving existing cache: %s", site_id, e)
+        log.warning("refresh_gee: site config error for '%s', serving existing cache: %s", site_id,
+                    gee_cache.safe_error(e))
+        errors.append(f"site_config: {gee_cache.safe_error(e)}")
     except Exception as e:  # never let a refresh attempt take the endpoint down
-        log.warning("refresh_gee: unexpected error for '%s', serving existing cache: %s", site_id, e)
+        log.warning("refresh_gee: unexpected error for '%s', serving existing cache: %s", site_id,
+                    gee_cache.safe_error(e))
+        errors.append(f"refresh: {gee_cache.safe_error(e)}")
 
-    payload = _gee_layers_or_mock(site_id)
-    if live_ok:
+    live = sorted(k for k, v in outcome.items() if v == "live")
+    refresh = {"attempted_at": attempted_at, "earth_engine_initialised": credentials_ok,
+               "products": outcome, "live_products": live,
+               "errors": [gee_cache.safe_error(e) for e in errors]}
+    meta = gee_cache.read_json(site_id, "gee_meta.json", data_dir)
+    if meta is not None:
+        meta["last_refresh"] = refresh
+        gee_cache.write_json(site_id, "gee_meta.json", meta, data_dir)
+
+    payload = _gee_layers(site_id)
+    payload["refresh"] = refresh
+    payload["last_refresh"] = refresh
+    if live:
         payload["source"] = "live"
+        payload["partial"] = len(live) < len(gee_cache.PRODUCTS)
+    else:
+        payload["partial"] = False
     return _validated_json("gee_layers.schema.json", payload)
 
 

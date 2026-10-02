@@ -34,6 +34,9 @@ log = logging.getLogger("m7.fetch")
 
 LAKE_DAM_KINDS = ("moraine_dammed_lake", "landslide_dam")
 REFETCH_TRAILING_MONTHS = 2  # the current + previous month are always refetched, even if cached
+#: this many consecutive provider errors with no successful month at all = an outage, not a bad
+#: month: stop asking (and logging) for every remaining month and fall back to the cache.
+OUTAGE_CONSECUTIVE_ERRORS = 3
 
 
 @dataclass
@@ -45,6 +48,12 @@ class FetchResult:
     meta_path: Path | None = None
     recheck_path: Path | None = None
     errors: list[str] = field(default_factory=list)
+    #: per product: "live" if Earth Engine returned it in this run, else "cache" (kept on disk).
+    products: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def any_live(self) -> bool:
+        return any(v == "live" for v in self.products.values())
 
 
 def _month_starts(months_back: int, as_of: date | None = None) -> list[date]:
@@ -116,6 +125,10 @@ def _load_slope_deg(site_id: str, grid, data_dir: Path):
     except Exception as e:
         log.warning("could not compute slope from %s, skipping slope masking: %s", dem_path, e)
         return None
+
+
+class _ProviderOutage(Exception):
+    """Every lake-area month this run tried failed at the provider; message is already sanitised."""
 
 
 class _MonthSkipped(Exception):
@@ -210,6 +223,14 @@ def _fetch_lake_area(
             month_detail[date_str] = {"method": "skip", "reason": skipped.reason,
                                        "cloud_pct": skipped.cloud_pct, "snow_ice_pct": skipped.snow_ice_pct}
             continue
+        except Exception as e:  # one month's provider error must not discard the other months
+            log.warning("lake-area month %s failed for '%s': %s", date_str, site_id, cache.safe_error(e))
+            month_detail[date_str] = {"method": "error", "reason": "provider_error",
+                                       "error": cache.safe_error(e)}
+            errs = [d for d in month_detail.values() if d["method"] == "error"]
+            if len(errs) == len(month_detail) and len(errs) >= OUTAGE_CONSECUTIVE_ERRORS:
+                raise _ProviderOutage(errs[0]["error"])
+            continue  # no fresh row: any cached row for this month is kept as-is
 
         fresh_rows.append({
             "date": date_str, "area_m2": area_m2, "method": method,
@@ -222,6 +243,12 @@ def _fetch_lake_area(
             "acquisition_dates": raster.acquisition_dates,
         }
         components[date_str] = (component, method)
+
+    attempted = [d for d in month_detail.values()]
+    if attempted and all(d["method"] == "error" for d in attempted):
+        # Every month this run tried failed at the provider: nothing came back from Earth Engine,
+        # so this is a failed product, not a live one (caller falls back to the cache).
+        raise _ProviderOutage(next(d["error"] for d in attempted))
 
     merged = cache.merge_lake_rows(cached_rows, fresh_rows)
     latest_valid_date = max((r["date"] for r in merged if r["area_m2"] is not None), default=None)
@@ -241,7 +268,8 @@ def _fetch_lake_area(
             _, component, method, *_ = _classify_and_mask(
                 latest_month_start, _month_end(latest_month_start), provider, settings, grid,
                 seed_rc, site_id, data_dir, slope_deg_cache)
-        except _MonthSkipped:
+        except Exception:
+            # (Also covers a provider error on this one extra call.)
             # The month that produced a valid cached area no longer classifies the same way against
             # a live provider right now (e.g. a synthetic/test provider with no memory of past
             # months, or genuinely different live conditions on re-query) -- there's a real area
@@ -270,13 +298,16 @@ def run(
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     result = FetchResult(site_id=site_id)
+    prev_meta = cache.read_json(site_id, "gee_meta.json", data_dir) or {}
+    lake_error = rain_error = None
 
     try:
         lake_rows, month_detail, latest = _fetch_lake_area(site_id, cfg, dam, provider, settings, data_dir)
         lake_area_source = "live"
     except Exception as e:  # provider failure: keep the existing cache (contract §4.8 fallback)
-        log.warning("lake-area fetch failed for '%s', keeping cache: %s", site_id, e)
-        result.errors.append(f"lake_area: {e}")
+        lake_error = str(e) if isinstance(e, _ProviderOutage) else cache.safe_error(e)
+        log.warning("lake-area fetch failed for '%s', keeping cache: %s", site_id, lake_error)
+        result.errors.append(f"lake_area: {lake_error}")
         lake_rows = cache.read_lake_area(site_id, data_dir)
         month_detail, latest, lake_area_source = {}, None, "cache"
 
@@ -285,8 +316,11 @@ def run(
     if latest is not None:
         geojson = la.polygonize_lonlat(latest["component"], latest["grid"])
         area_m2 = next(r["area_m2"] for r in lake_rows if r["date"] == latest["date"])
+        detail = month_detail.get(latest["date"], {})
         feature = {"type": "Feature", "geometry": geojson,
-                    "properties": {"date": latest["date"], "area_m2": area_m2, "method": latest["method"]}}
+                    "properties": {"date": latest["date"], "area_m2": area_m2, "method": latest["method"],
+                                   "acquisition_dates": detail.get("acquisition_dates", []),
+                                   "cloud_pct": detail.get("cloud_pct"), "kind": "observed"}}
         result.lake_latest_path = cache.write_lake_latest(site_id, feature, data_dir)
     else:
         result.lake_latest_path = cache.gee_dir(site_id, data_dir) / "lake_latest.geojson"
@@ -298,13 +332,15 @@ def run(
         start = end - timedelta(days=settings.rain_days_back)
         catchment = provider.catchment(dam.location.value[0], dam.location.value[1], settings.hydrobasins_level)
         daily = provider.rainfall_daily(catchment["geojson"], start, end, settings.rain_dataset)
-        rain_rows = rf.to_rows(daily, dataset=settings.rain_dataset)
+        rain_rows = cache.merge_rainfall_rows(cache.read_rainfall(site_id, data_dir),
+                                              rf.to_rows(daily, dataset=settings.rain_dataset))
         rain_source = "live"
     except Exception as e:
-        log.warning("rainfall fetch failed for '%s', keeping cache: %s", site_id, e)
-        result.errors.append(f"rainfall: {e}")
+        rain_error = cache.safe_error(e)
+        log.warning("rainfall fetch failed for '%s', keeping cache: %s", site_id, rain_error)
+        result.errors.append(f"rainfall: {rain_error}")
         rain_rows = cache.read_rainfall(site_id, data_dir)
-        catchment = {"basin_ids": [], "geojson": None}
+        catchment = {"basin_ids": (prev_meta.get("catchment") or {}).get("basin_ids", []), "geojson": None}
         rain_source = "cache"
 
     result.rainfall_path = cache.write_rainfall(site_id, rain_rows, data_dir)
@@ -316,24 +352,53 @@ def run(
     all_scene_ids = sorted({sid for d in month_detail.values() for sid in d.get("scene_ids", [])})
     all_acq_dates = sorted({dt for d in month_detail.values() for dt in d.get("acquisition_dates", [])})
     cloud_pcts = [d["cloud_pct"] for d in month_detail.values() if d.get("cloud_pct") is not None]
+    month_errors = {k: d["error"] for k, d in month_detail.items() if d.get("method") == "error"}
+    latest_detail = month_detail.get(latest["date"], {}) if latest else {}
+    lake_latest_source = "live" if latest is not None else "cache"
+    result.products = {"lake_area": lake_area_source, "lake_latest": lake_latest_source, "rainfall": rain_source}
 
+    def _product(name: str, source: str, live_entry: dict, error: str | None, fallback_reason: str | None) -> dict:
+        """A live product gets fresh provenance stamped `now`; a cache-only one keeps the previous
+        entry's provenance (so `fetched_at` stays the time Earth Engine last returned it) and only
+        records this attempt, its error and why the cache is being served."""
+        if source == "live":
+            entry = {**live_entry, "fetched_at": now, "last_attempt_at": now, "source": "live",
+                     "error": error, "fallback_reason": None}
+        else:
+            entry = {**(prev_meta.get(name) or live_entry), "last_attempt_at": now, "error": error,
+                     "fallback_reason": fallback_reason}
+            entry.setdefault("fetched_at", None)
+            entry["source"] = "cache" if entry.get("fetched_at") else "none"
+        return entry
+
+    lake_partial = (f"{len(month_errors)} month(s) failed at the provider; cached rows kept"
+                    if month_errors else None)
     meta = {
+        **{k: v for k, v in prev_meta.items() if k == "imagery"},
         "contract_version": cache.CONTRACT_VERSION,
         "site_id": site_id,
-        "fetched_at": now,
-        "lake_area": {"dataset": "sentinel-1/sentinel-2", "scene_ids": all_scene_ids,
-                      "acquisition_dates": all_acq_dates,
-                      "cloud_pct": round(sum(cloud_pcts) / len(cloud_pcts), 1) if cloud_pcts else None,
-                      "fetched_at": now, "source": lake_area_source},
-        "lake_latest": {"dataset": "sentinel-1/sentinel-2",
-                         "scene_ids": month_detail.get(latest["date"], {}).get("scene_ids", []) if latest else [],
-                         "acquisition_dates": month_detail.get(latest["date"], {}).get("acquisition_dates", []) if latest else [],
-                         "cloud_pct": month_detail.get(latest["date"], {}).get("cloud_pct") if latest else None,
-                         "fetched_at": now, "source": lake_area_source if latest else "cache"},
-        "rainfall": {"dataset": settings.rain_dataset, "scene_ids": [], "acquisition_dates": [],
-                     "cloud_pct": None, "fetched_at": now, "source": rain_source},
-        "lake_area_months": month_detail,
-        "catchment": {"basin_ids": catchment.get("basin_ids", [])},
+        "fetched_at": now if result.any_live else prev_meta.get("fetched_at"),
+        "last_attempt_at": now,
+        "lake_area": _product("lake_area", lake_area_source, {
+            "dataset": "sentinel-1/sentinel-2", "scene_ids": all_scene_ids,
+            "acquisition_dates": all_acq_dates,
+            "cloud_pct": round(sum(cloud_pcts) / len(cloud_pcts), 1) if cloud_pcts else None,
+            "method": "monthly s2_water_index / s1_threshold (Otsu, seeded component)"},
+            lake_error or lake_partial, "provider_error" if lake_error else None),
+        "lake_latest": _product("lake_latest", lake_latest_source, {
+            "dataset": "sentinel-1/sentinel-2", "scene_ids": latest_detail.get("scene_ids", []),
+            "acquisition_dates": latest_detail.get("acquisition_dates", []),
+            "cloud_pct": latest_detail.get("cloud_pct"),
+            "method": latest["method"] if latest else None, "observation_date": latest["date"] if latest else None},
+            lake_error, "provider_error" if lake_error else "latest_valid_month_not_recomputable"),
+        "rainfall": _product("rainfall", rain_source, {
+            "dataset": settings.rain_dataset, "scene_ids": [],
+            "acquisition_dates": [rain_rows[0]["date"], rain_rows[-1]["date"]] if rain_rows else [],
+            "cloud_pct": None, "method": "catchment_mean_daily_total (satellite estimate, not gauge)"},
+            rain_error, "provider_error" if rain_error else None),
+        "lake_area_months": {**(prev_meta.get("lake_area_months") or {}), **month_detail},
+        "catchment": {"basin_ids": catchment.get("basin_ids", []),
+                      "hydrobasins_level": settings.hydrobasins_level},
         "rainfall_accumulations": accum,
         "settings": {k: (list(v) if isinstance(v, tuple) else v) for k, v in settings.model_dump().items()},
         "has_placeholders": bool(placeholder_deps),

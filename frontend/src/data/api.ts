@@ -89,13 +89,27 @@ export type CompareResponse = {
 };
 export type GeeLayers = {
   site_id: string; source: 'live' | 'cache' | 'screenshot_fallback'; fetched_at: string;
-  lake_area_series: Array<{date: string; area_m2: number; method: 's2_water_index' | 's1_threshold'; cloud_pct: number | null}>;
+  lake_area_series: Array<{date: string; area_m2: number | null; method: 's2_water_index' | 's1_threshold' | null; cloud_pct: number | null}>;
   lake_latest: {type: 'FeatureCollection'; features: Array<{type: 'Feature'; geometry: {type: string; coordinates: unknown}; properties: Record<string, unknown>}>};
   rainfall: Array<{date: string; precip_mm: number; dataset: 'chirps' | 'gpm_imerg'}>;
   imagery: Array<{event_id: string; phase: 'pre' | 'post'; date: string; url: string; bounds_latlng: number[][]}>;
   observed_extents: Array<{event_id: string; url: string; method: 'manual_digitized' | 'change_detection'}>;
-  recheck: {outdated: boolean; change_pct: number | null; threshold_pct: number};
+  recheck: {outdated: boolean; change_pct: number | null; threshold_pct: number; reason?: string | null; checked_at?: string | null};
+  // Feature 10 additive, optional fields (absent from the contract example / mock mode).
+  data_available?: boolean;
+  partial?: boolean;
+  products?: Record<'lake_area' | 'lake_latest' | 'rainfall' | 'imagery', GeeProductStatus>;
+  rainfall_accumulations?: Record<string, number | string | null> | null;
+  rainfall_kind?: 'satellite_estimate';
+  refresh?: GeeRefresh;
+  last_refresh?: GeeRefresh | null;
 };
+export type GeeProductStatus = {
+  source: 'live' | 'cache' | 'none' | null; dataset: string | null; fetched_at: string | null;
+  last_attempt_at: string | null; acquisition_dates: string[]; scene_ids: string[];
+  cloud_pct: number | null; method: string | null; error: string | null; fallback_reason: string | null;
+};
+export type GeeRefresh = {attempted_at: string; earth_engine_initialised: boolean; products: Record<string, string>; live_products: string[]; errors: string[]};
 export type Timeline = {
   query_id: string; interval_s: number; t_end_s: number;
   frames: Array<{t_s: number; median_url: string; high_url: string; possible_url: string; bounds_latlng: number[][]}>;
