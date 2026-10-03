@@ -325,6 +325,8 @@ site:
   name: "Teesta basin - South Lhonak Lake and Teesta III (Chungthang)"
   region: "Sikkim (Mangan, Gangtok, Pakyong districts); West Bengal (Kalimpong, Jalpaiguri)"
   river: Teesta
+  # country_iso3: IND             # optional (Feature 16), ISO 3166-1 alpha-3; null/omitted = not stated.
+  #                               # Used to pick the national WorldPop raster; never inferred.
 
 crs:
   utm_epsg:                        # WGS 84 / UTM zone nnN -> EPSG 326nn (32601-32660, 32701-32760)

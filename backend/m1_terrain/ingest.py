@@ -82,6 +82,9 @@ class IngestionSettings(BaseModel):
     dem_products: list[str] = ["copernicus_glo30", "srtm_gl1"]
     dem_preference: list[str] = ["copernicus_glo30", "srtm_gl1", "cartodem"]
     max_dem_void_fraction: float = Field(default=0.05, ge=0, le=1)
+    #: cap (km^2) on the far-field DEM/landcover download request (bbox + margin), checked before
+    #: any download. An engineering limit (RAM/disk/API), not a site fact.
+    max_request_area_km2: float = Field(default=25000.0, gt=0)
     min_landcover_valid_fraction: float = Field(default=0.95, ge=0, le=1)
     worldcover_base_url: str = download.WORLDCOVER_BASE_URL
     hydrobasins: _HydroBasins = _HydroBasins()
@@ -319,6 +322,13 @@ def ingest_site(cfg: SiteConfig, raw_dir: str | Path, *, settings: IngestionSett
     raw_dir = Path(raw_dir)
     raw_dir.mkdir(parents=True, exist_ok=True)
     check_terrain_readiness(cfg)
+    try:
+        area = download.check_request_area(cfg, settings.max_request_area_km2)
+    except download.RequestAreaTooLarge as e:
+        raise IngestionError("terrain_failed", str(e), {
+            "site_id": cfg.site.id, "reason": "request_area_too_large",
+            "request_area_km2": e.area_km2, "max_request_area_km2": e.max_area_km2}) from None
+    event(f"download request area: {area} km^2 (cap {settings.max_request_area_km2} km^2)")
     bbox = [float(v) for v in cfg.domains.far_field.bbox.value]
     network = network_enabled()
 

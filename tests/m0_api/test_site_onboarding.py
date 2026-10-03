@@ -259,3 +259,18 @@ def test_bundled_list_comes_from_config():
 def test_no_hard_coded_known_site_ids_left_in_backend():
     offenders = [str(p) for p in (REPO / "backend").rglob("*.py") if re.search(r"KNOWN_SITE_IDS", p.read_text())]
     assert offenders == []
+
+
+# --- Feature 16 P1: credential-like keys -------------------------------------------------------
+_F16_SECRET = "TEST-NOT-A-REAL-SECRET-b81e"
+
+
+@pytest.mark.parametrize("place", ["root", "site", "bbox"])
+def test_post_sites_rejects_credential_like_key_without_echoing_it(data_dir, place):
+    cfg = minimal_config("cred_probe")
+    target = {"root": cfg, "site": cfg["site"], "bbox": cfg["domains"]["far_field"]["bbox"]}[place]
+    target["api_key"] = _F16_SECRET
+    r = post(cfg)
+    assert r.status_code == 422, r.text
+    assert _F16_SECRET not in r.text
+    assert not (data_dir / "cred_probe").exists()  # nothing persisted

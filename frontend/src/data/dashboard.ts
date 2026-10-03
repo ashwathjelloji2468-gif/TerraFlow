@@ -151,6 +151,20 @@ export function statusChips(q: FloodQueryResponse | null, c: CompareResponse | n
 export type ReadinessSummary = {verdict: 'READY' | 'BLOCKED' | 'UNAVAILABLE'; blockingCount: number;
   counts: Record<string, number>; runCounts: Record<string, number>; topBlocking: string[]; pilotRuns: string[]; acceptedRuns: string[]};
 /** Feature 13: compact production-readiness summary. No readiness response -> UNAVAILABLE, never READY. */
+/** Feature 16: per-status counts of a site's inputs in the production gate's own vocabulary
+ *  (READY / PLACEHOLDER / BLOCKED / CONTROLLED_PASS); no response -> null (rendered UNAVAILABLE). */
+export const READINESS_STATUSES = ['READY', 'PLACEHOLDER', 'BLOCKED', 'CONTROLLED_PASS'] as const;
+export function readinessStatusCounts(r: SiteReadiness | null): Record<(typeof READINESS_STATUSES)[number], number> | null {
+  if (!r) return null;
+  const out = {READY: 0, PLACEHOLDER: 0, BLOCKED: 0, CONTROLLED_PASS: 0};
+  for (const i of r.inputs) out[i.status] += 1;
+  return out;
+}
+/** Readiness is fetched once per onboarding job, after its preparation stages (never polled). */
+export const ONBOARDING_SETTLED_STAGES = ['simulating', 'training', 'validating', 'ready', 'failed'];
+export function onboardingSettled(stage: string | undefined | null): boolean {
+  return !!stage && ONBOARDING_SETTLED_STAGES.includes(stage);
+}
 export function readinessSummary(r: SiteReadiness | null): ReadinessSummary {
   if (!r) return {verdict: 'UNAVAILABLE', blockingCount: 0, counts: {}, runCounts: {}, topBlocking: [], pilotRuns: [], acceptedRuns: []};
   return {verdict: r.production_verdict === 'READY' && r.blocking.length === 0 ? 'READY' : 'BLOCKED',

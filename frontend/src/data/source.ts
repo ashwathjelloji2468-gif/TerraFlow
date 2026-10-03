@@ -22,7 +22,7 @@ export {siteIdFromName, validateWizardSite, missingTerrainFields} from './site-c
 export type Awaiting = {status: 'awaiting'; reason: string};
 
 export type {SiteSummary} from './api';
-export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename, statusChips, directDetail, readinessSummary} from './dashboard';
+export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename, statusChips, directDetail, readinessSummary, readinessStatusCounts, onboardingSettled, READINESS_STATUSES} from './dashboard';
 export type {ReadinessSummary, StatusChip, DashboardMetric, GeeStatus, ValidationStatus, CompareOption, CompareSection, MethodInfo} from './dashboard';
 import {exportFilename} from './dashboard';
 export type {SavedQuery} from '../offline/cache-store';
@@ -34,13 +34,32 @@ export function directEventScenarioId(siteId: string): string | undefined {
   // Feature 12: from src/content/site_runtime.json (mirrors config/registered_runs.yaml), not code.
   return !useMocks ? siteRuntime(siteId).direct_event_scenario_id : undefined;
 }
-export type SiteRuntime = {direct_event_scenario_id?: string; demo_site?: boolean; reference_panel?: string};
+export type SiteRuntime = {direct_event_scenario_id?: string; demo_site?: boolean; reference_panel?: string;
+  label?: string; event_label?: string; short_label?: string};
 export function siteRuntime(siteId: string): SiteRuntime {
   return ((siteRuntimeConfig as {sites: Record<string, SiteRuntime>}).sites[siteId] ?? {});
 }
 /** The site whose registered direct run the landing-page demo opens (config, not code). */
 export function demoSiteId(): string | undefined {
   return Object.entries((siteRuntimeConfig as {sites: Record<string, SiteRuntime>}).sites).find(([, v]) => v.demo_site)?.[0];
+}
+
+/** Feature 16: display labels for a site, from site_runtime.json only. A site without runtime labels gets
+ *  neutral text derived from its own name/id -- never another site's (e.g. the demo site's) labels. */
+export type SiteLabels = {site: string; event: string; short: string};
+export function siteLabels(siteId?: string, name?: string): SiteLabels {
+  const r = siteId ? siteRuntime(siteId) : {};
+  const site = r.label ?? name ?? siteId ?? 'Site';
+  return {site, event: r.event_label ?? 'registered event', short: (r.short_label ?? site).toUpperCase()};
+}
+/** Labels of the configured demo site; neutral when no demo site is configured. */
+export function demoLabels(): SiteLabels {
+  const id = demoSiteId();
+  return id ? siteLabels(id) : {site: 'Demo', event: 'registered event', short: 'DEMO'};
+}
+/** Fill `{name}` placeholders in a ui_text template; unknown names are left as-is. */
+export function fillText(template: string, vars: Partial<SiteLabels> & Record<string, string | undefined>): string {
+  return template.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
 }
 
 /** Contract §5.1 — GET /sites. */

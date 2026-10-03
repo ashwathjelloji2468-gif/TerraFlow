@@ -11,6 +11,8 @@ export const OPERATOR_SOURCE = 'operator entry (TerraFlow onboarding wizard), un
 export type DamKind = 'moraine_dammed_lake' | 'embankment_dam' | 'concrete_dam' | 'landslide_dam';
 export type WizardSite = {
   name: string;
+  /** Optional ISO 3166-1 alpha-3 country (site.country_iso3, Feature 16). Never inferred; omitted when unset. */
+  countryIso3?: string;
   citation?: string;
   damName: string;
   damKind: DamKind;
@@ -52,6 +54,8 @@ export function utmEpsg(lon: number, lat: number): number {
 export function validateWizardSite(w: WizardSite): string[] {
   const errors: string[] = [];
   if (!w.name.trim()) errors.push('Enter a site name.');
+  if (w.countryIso3 != null && w.countryIso3 !== '' && !/^[A-Z]{3}$/.test(w.countryIso3))
+    errors.push('Country must be a 3-letter upper-case ISO code (e.g. IND, NPL), or left empty.');
   if (!w.damName.trim()) errors.push('Enter the dam or lake name.');
   if (!(w.damLat >= -85 && w.damLat <= 85 && w.damLon >= -180 && w.damLon <= 180)) errors.push('The dam location is not a valid latitude/longitude.');
   if (!w.bbox) errors.push('Enter the study-area bounds.');
@@ -100,7 +104,7 @@ export function buildSiteConfig(w: WizardSite): Record<string, unknown> {
   const b = w.breach;
   return {
     schema_version: 1,
-    site: {id: siteIdFromName(w.name), name: w.name.trim()},
+    site: {id: siteIdFromName(w.name), name: w.name.trim(), ...(w.countryIso3 ? {country_iso3: w.countryIso3} : {})},
     crs: {utm_epsg: {value: utmEpsg(w.damLon, w.damLat), unit: 'epsg', source: 'derived: UTM zone of the entered dam location', status: 'placeholder'}},
     domains: {
       far_field: {

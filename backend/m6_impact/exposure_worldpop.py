@@ -37,25 +37,48 @@ from rasterio.mask import mask
 from shapely.geometry import box
 
 from backend.shared.grid import build_farfield_grid, resample_to_grid, write_grid_raster
-from backend.shared.site_config import SiteConfig, load_site_config
+import re
+
+from backend.shared.site_config import COUNTRY_ISO3_PATTERN, SiteConfig, load_site_config
 
 log = logging.getLogger("m6.exposure_worldpop")
 
 WORLDPOP_DATASET = "Global_2000_2020_1km_UNadj"
 WORLDPOP_YEAR = 2020
 WORLDPOP_LICENSE = "Creative Commons Attribution 4.0 International (CC BY 4.0), https://www.worldpop.org"
-DEFAULT_ISO3 = "IND"  # every current site (Teesta, Rishi Ganga) is in India
+# Feature 16: there is NO default country. The national raster comes from the site config's
+# `site.country_iso3` or an explicit `--iso3`; it is never inferred from `site.region` or the bbox.
+
+
+class CountryUnknown(ValueError):
+    """No country is stated for the site and none was passed explicitly."""
+
+
+def resolve_iso3(cfg: SiteConfig, iso3: str | None = None) -> tuple[str, str]:
+    """(iso3, basis) for `cfg`: the explicit `iso3` (basis "explicit --iso3") or `site.country_iso3`
+    (basis "site.country_iso3"). Both given and different -> ValueError; neither -> CountryUnknown."""
+    configured = cfg.site.country_iso3
+    if iso3 is not None:
+        if not isinstance(iso3, str) or not re.fullmatch(COUNTRY_ISO3_PATTERN, iso3):
+            raise ValueError(f"--iso3 {iso3!r} is not a 3-letter upper-case country code")
+        if configured is not None and configured != iso3:
+            raise ValueError(f"--iso3 {iso3} conflicts with site.country_iso3 {configured} for '{cfg.site.id}'")
+        return iso3, "explicit --iso3"
+    if configured is not None:
+        return configured, "site.country_iso3"
+    raise CountryUnknown(f"site '{cfg.site.id}' has no site.country_iso3; pass --iso3 explicitly "
+                         "(the country is never assumed or inferred from region/bbox)")
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 
-def worldpop_url(iso3: str = DEFAULT_ISO3, year: int = WORLDPOP_YEAR) -> str:
+def worldpop_url(iso3: str, year: int = WORLDPOP_YEAR) -> str:
     iso3_lower = iso3.lower()
     return (f"https://data.worldpop.org/GIS/Population/{WORLDPOP_DATASET}/{year}/{iso3}/"
             f"{iso3_lower}_ppp_{year}_1km_Aggregated_UNadj.tif")
 
 
-def download_national_raster(cache_dir: Path, iso3: str = DEFAULT_ISO3, year: int = WORLDPOP_YEAR,
+def download_national_raster(cache_dir: Path, iso3: str, year: int = WORLDPOP_YEAR,
                               client: httpx.Client | None = None) -> Path:
     """Download the whole-country population mosaic to `cache_dir`, skipping if already cached.
     Downloads to a `.part` file first so a truncated/interrupted transfer never looks cached."""
@@ -126,7 +149,7 @@ def _write_provenance(exposure_dir: Path, entry: dict) -> None:
     path.write_text(json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def fetch(cfg: SiteConfig, data_dir: Path = DATA_DIR, iso3: str = DEFAULT_ISO3) -> dict:
+def fetch(cfg: SiteConfig, data_dir: Path = DATA_DIR, iso3: str | None = None) -> dict:
     bbox = cfg.domains.far_field.bbox.value
     if bbox is None:
         raise ValueError(f"site '{cfg.site.id}': domains.far_field.bbox is a placeholder (null) — "
@@ -137,6 +160,7 @@ def fetch(cfg: SiteConfig, data_dir: Path = DATA_DIR, iso3: str = DEFAULT_ISO3) 
         log.info("population: %s already exists, skipping", exposure_path)
         return {"file": exposure_path.name, "status": "skipped_existing"}
 
+    iso3, country_basis = resolve_iso3(cfg, iso3)  # before any download or file write
     exposure_path.parent.mkdir(parents=True, exist_ok=True)
     cache_dir = data_dir / "_cache" / "worldpop"
     raw_dir = data_dir / cfg.site.id / "raw"
@@ -156,6 +180,8 @@ def fetch(cfg: SiteConfig, data_dir: Path = DATA_DIR, iso3: str = DEFAULT_ISO3) 
         "status": "fetched",
         "source": "WorldPop Global 2000-2020, 1km, UN-adjusted population counts",
         "url": worldpop_url(iso3, WORLDPOP_YEAR),
+        "country_iso3": iso3,
+        "country_basis": country_basis,
         "license": WORLDPOP_LICENSE,
         "year": WORLDPOP_YEAR,
         "native_resolution_m": 1000,
@@ -175,12 +201,18 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("site_id", help="site id (a sites/<site_id>.yaml must exist)")
-    parser.add_argument("--iso3", default=DEFAULT_ISO3, help="WorldPop country code (default: IND)")
+    parser.add_argument("--iso3", default=None,
+                        help="WorldPop country code (ISO 3166-1 alpha-3). Required when the site config has "
+                             "no site.country_iso3; there is no default")
     parser.add_argument("--data-dir", default=str(DATA_DIR), help="override the data/ root")
     args = parser.parse_args(argv)
 
     cfg = load_site_config(args.site_id)
-    fetch(cfg, data_dir=Path(args.data_dir), iso3=args.iso3)
+    try:
+        fetch(cfg, data_dir=Path(args.data_dir), iso3=args.iso3)
+    except (CountryUnknown, ValueError) as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
     return 0
 
 

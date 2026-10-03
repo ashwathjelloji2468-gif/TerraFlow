@@ -10,6 +10,10 @@ dem_preference: [copernicus_glo30, srtm_gl1, cartodem]
 # A candidate is acceptable when at most this fraction of far-field grid cells are voids.
 # If no candidate meets it, the lowest-void candidate is used and recorded threshold_met: false.
 max_dem_void_fraction: 0.05
+# Cap (km^2) on the far-field download request (domains.far_field.bbox + ~1 km margin), checked
+# before any DEM/landcover download (Feature 16 P1). Engineering limit, not a site fact: the Teesta
+# far-field request is ~11,400 km^2; at 30 m, 25,000 km^2 is ~28 M cells per DEM candidate.
+max_request_area_km2: 25000
 
 # ESA WorldCover: minimum fraction of the far-field bbox that must have a valid class (non-zero).
 min_landcover_valid_fraction: 0.95

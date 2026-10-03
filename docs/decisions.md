@@ -1332,3 +1332,16 @@ build a Delft3D near-field water surface from the paired near-field DEM and maxi
   (regenerated from the model); `water_volume_m3` is sampled (log10, not widened) only over such a range.
 - PCA/GP still take 3 inputs; a 4th (Q_p) is Feature 7's change.
 
+
+## 2026-10-03 — Feature 16 P1: onboarding input safety (DECIDED with user)
+- **F16-P1a:** event imagery `source` paths (client-supplied via `POST /sites`) must be relative POSIX
+  paths to a `.tif`/`.tiff` under `cache/gee/<site_id>/` (no `..`, absolute, drive, backslash or NUL;
+  symlinks may not resolve outside). `m7_gee.imagery.raw_rgb_path` raises `UnsafeImageryPath` before
+  any read/write; `refresh()` keeps its documented fallback (error recorded, nothing written).
+- **F16-P1b:** `config/m1_ingestion.yaml` `max_request_area_km2: 25000` caps the far-field download
+  request (bbox + margin, spherical area) before any DEM/landcover download. Engineering limit, not a
+  site fact. Over the cap -> job error `terrain_failed` with `details.reason = request_area_too_large`
+  (existing code; no contract change). Teesta's request is ~11,588 km^2.
+- **F16-P1c:** `load_site_config` errors list location + message + type only, never the input value,
+  so a mis-placed credential is not echoed into logs/job errors. The model's `extra="forbid"` on every
+  sub-model is now guarded by a test.

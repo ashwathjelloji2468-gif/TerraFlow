@@ -93,7 +93,7 @@ def test_fetch_rejects_placeholder_bbox(synth_config):
 def test_fetch_downloads_clips_resamples_and_writes_provenance(tmp_path, national_raster, synth_config, monkeypatch):
     monkeypatch.setattr(wp, "download_national_raster", lambda *a, **k: national_raster)
 
-    entry = wp.fetch(synth_config, data_dir=tmp_path)
+    entry = wp.fetch(synth_config, data_dir=tmp_path, iso3="IND")  # Feature 16: explicit, no default
 
     assert entry["status"] == "fetched"
     exposure_path = tmp_path / synth_config.site.id / "exposure" / "population.tif"

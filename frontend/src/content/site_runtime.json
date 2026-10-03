@@ -1,10 +1,13 @@
 {
-  "_comment": "Feature 12: per-site frontend runtime metadata (mirrors config/registered_runs.yaml). A site not listed here gets no site-specific behaviour.",
+  "_comment": "Feature 12/16: per-site frontend runtime metadata (mirrors config/registered_runs.yaml). A site not listed here gets no site-specific behaviour or labels; display labels for a site live here, never in UI code or ui_text.json.",
   "sites": {
     "teesta": {
       "direct_event_scenario_id": "teesta_2023_mvp",
       "demo_site": true,
-      "reference_panel": "isro_south_lhonak"
+      "reference_panel": "isro_south_lhonak",
+      "label": "Teesta III",
+      "event_label": "South Lhonak 2023",
+      "short_label": "TEESTA"
     }
   }
 }

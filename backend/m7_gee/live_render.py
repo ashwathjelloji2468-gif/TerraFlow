@@ -77,7 +77,7 @@ def render_event_rgb(
         arr = ee.data.computePixels({"expression": vis, "fileFormat": "NUMPY_NDARRAY", "grid": pixel_grid})
         rgb = np.stack([np.asarray(arr[b], dtype=np.uint8) for b in bands])
 
-        final_path = raw_rgb_path(sv.source, repo_root)
+        final_path = raw_rgb_path(sv.source, repo_root, cfg.site.id)
         out_path = staging_path(final_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with rasterio.open(

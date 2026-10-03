@@ -1,0 +1,220 @@
+# Feature 16 P6: SYNTHETIC generalization site. NOT REAL DATA and not a real river.
+# Derived from sites/synth_engdam.yaml (itself synthetic): every lon/lat shifted by (-13.40, +4.60) deg to an
+# arbitrary box in UTM zone 43N (EPSG:32643), ids/names renamed. Used only by tests/m0_api/test_feature16_generalization.py.
+schema_version: 1
+site:
+  id: synth_river_alpha
+  name: Synthetic River Alpha (generalization fixture)
+  region: None - synthetic fixture
+  river: Synthetic River Alpha
+crs:
+  utm_epsg:
+    value: 32643
+    unit: epsg
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+domains:
+  far_field:
+    description: Synthetic far-field box (~10 km x 11 km)
+    bbox:
+      value:
+      - 75.05
+      - 32.05
+      - 75.15
+      - 32.15
+      unit: deg
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    grid_resolution:
+      value: 30
+      unit: m
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    inflow:
+      from: alpha_dam
+      location:
+        value:
+        - 75.06
+        - 32.14
+        unit: deg
+        source: Synthetic generalization fixture (Feature 16 P6) - not real data
+        status: sourced
+      base_flow:
+        value: 12.0
+        unit: m^3/s
+        source: Synthetic generalization fixture (Feature 16 P6) - not real data
+        status: sourced
+  near_field:
+    description: Synthetic near-field box (~2 km)
+    bbox:
+      value:
+      - 75.08
+      - 32.08
+      - 75.1
+      - 32.1
+      unit: deg
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    grid_resolution:
+      value: 10
+      unit: m
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    inflow:
+      from: alpha_dam
+      location:
+        value:
+        - 75.085
+        - 32.099
+        unit: deg
+        source: Synthetic generalization fixture (Feature 16 P6) - not real data
+        status: sourced
+dams:
+- id: alpha_dam
+  name: Synthetic Alpha embankment dam
+  kind: embankment_dam
+  triggered_by: null
+  location:
+    value:
+    - 75.06
+    - 32.145
+    unit: deg
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+  breach_location:
+    value:
+    - 75.06
+    - 32.14
+    unit: deg
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+  breach_inputs:
+    water_volume_above_invert:
+      value: 1000000
+      unit: m^3
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    water_height_above_invert:
+      value: 15
+      unit: m
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    breach_height:
+      value: 15
+      unit: m
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    dam_height:
+      value: 25
+      unit: m
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    average_embankment_width:
+      value: 150
+      unit: m
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    dam_type:
+      value: HD
+      unit: enum
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    failure_mode:
+      value: O
+      unit: enum
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    erodibility:
+      value: H
+      unit: enum
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+  volume_elevation:
+    method: area_volume_relation
+    area_volume_exponent_b:
+      value: 1.5
+      unit: '-'
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+  breach_hydrograph:
+    weir_coefficient_rect:
+      value: 1.7
+      unit: m^0.5/s
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    weir_coefficient_side:
+      value: 1.3
+      unit: m^0.5/s
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+    side_slope_z:
+      value: 0.5
+      unit: '-'
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+points_of_interest:
+- id: alpha_town
+  name: Alpha Town
+  category: village
+  location:
+    value:
+    - 75.09
+    - 32.09
+    unit: deg
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+- id: alpha_bridge
+  name: Alpha Bridge
+  category: bridge
+  location:
+    value:
+    - 75.12
+    - 32.07
+    unit: deg
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+- id: alpha_dam_site
+  name: Alpha Dam
+  category: dam
+  location:
+    value:
+    - 75.06
+    - 32.145
+    unit: deg
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+events:
+- id: alpha_event_2020
+  name: Synthetic Alpha event
+  kind: hypothetical
+  onset:
+    value: '2020-01-01T00:00:00+05:30'
+    unit: iso8601
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+  breach_times:
+    alpha_dam:
+      value: '2020-01-01T00:00:00+05:30'
+      unit: iso8601
+      source: Synthetic generalization fixture (Feature 16 P6) - not real data
+      status: sourced
+  simulation_start:
+    value: '2019-12-31T22:00:00+05:30'
+    unit: iso8601
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+  simulation_end:
+    value: '2020-01-02T00:00:00+05:30'
+    unit: iso8601
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+  imagery_pre_event:
+    value: '2019-12-25'
+    unit: iso8601
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
+  imagery_post_event:
+    value: '2020-01-05'
+    unit: iso8601
+    source: Synthetic generalization fixture (Feature 16 P6) - not real data
+    status: sourced
