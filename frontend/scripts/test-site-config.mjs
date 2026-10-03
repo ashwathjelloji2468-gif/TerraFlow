@@ -35,6 +35,13 @@ try {
     assert.ok(m.siteIdFromName('a'.repeat(80)).length <= 32);
   });
 
+  test('country_iso3 is optional, validated, and never inferred (Feature 16)', () => {
+    assert.equal('country_iso3' in m.buildSiteConfig(wizard).site, false); // no country entered -> none sent
+    assert.equal(m.buildSiteConfig({...wizard, countryIso3: 'NPL'}).site.country_iso3, 'NPL');
+    assert.deepEqual(m.validateWizardSite({...wizard, countryIso3: 'NPL'}), []);
+    for (const bad of ['in', 'India', 'ind', 'IN1']) assert.ok(m.validateWizardSite({...wizard, countryIso3: bad}).some(e => /3-letter/.test(e)), bad);
+  });
+
   test('UTM EPSG from lon/lat', () => {
     assert.equal(m.utmEpsg(88.6, 27.9), 32645);
     assert.equal(m.utmEpsg(79.7, 30.4), 32644);

@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 SITES_DIR = Path(__file__).resolve().parents[2] / "sites"
 
 SITE_ID_PATTERN = r"^[a-z][a-z0-9_]{2,31}$"  # contract §1.7
+#: ISO 3166-1 alpha-3 style country code (three upper-case letters), e.g. "IND", "NPL". Feature 16.
+COUNTRY_ISO3_PATTERN = r"^[A-Z]{3}$"
 SLUG_PATTERN = r"^[a-z][a-z0-9_]*$"
 
 #: `docs/decisions.md` "ID naming scheme" (2026-09-25): design | demo | historical | named extra.
@@ -40,6 +42,17 @@ Status = Literal["sourced", "placeholder"]
 
 class SiteConfigError(ValueError):
     """A site config file is missing or fails validation."""
+
+
+def format_validation_errors(exc: ValidationError) -> str:
+    """Pydantic's error report WITHOUT the offending input values: `str(ValidationError)` echoes
+    `input_value=...`, which would copy a mis-placed credential (e.g. an `api_key:` key someone
+    added to a config) into logs, job errors and API responses. Location + message + type only."""
+    lines = [f"{exc.error_count()} validation error(s)"]
+    for err in exc.errors(include_input=False, include_url=False):
+        loc = ".".join(str(p) for p in err["loc"]) or "<root>"
+        lines.append(f"{loc}\n  {err['msg']} [type={err['type']}]")
+    return "\n".join(lines)
 
 
 class PlaceholderWarning(UserWarning):
@@ -256,6 +269,9 @@ class Site(_Strict):
     name: str
     region: str | None = None
     river: str | None = None
+    #: Optional (Feature 16). Country of the study area, used where a national dataset is selected
+    #: (WorldPop). Never inferred from `region` or the bbox; null means "not stated".
+    country_iso3: Annotated[str, Field(pattern=COUNTRY_ISO3_PATTERN)] | None = None
 
 
 class Crs(_Strict):
@@ -651,7 +667,7 @@ def load_site_config(path_or_id: str | Path, sites_dir: str | Path | None = None
     try:
         cfg = SiteConfig.model_validate(raw)
     except ValidationError as e:
-        raise SiteConfigError(f"{path}: invalid site config\n{e}") from e
+        raise SiteConfigError(f"{path}: invalid site config\n{format_validation_errors(e)}") from None
 
     if cfg.site.id != path.stem:
         raise SiteConfigError(f"{path}: site.id '{cfg.site.id}' must equal the file name '{path.stem}'")

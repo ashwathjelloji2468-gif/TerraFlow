@@ -90,6 +90,18 @@ class DownloadError(RuntimeError):
     """A DEM/landcover product could not be fetched, mosaicked or written."""
 
 
+class RequestAreaTooLarge(DownloadError):
+    """The far-field download request (bbox + margin) exceeds the configured area cap."""
+
+    def __init__(self, message: str, area_km2: float, max_area_km2: float):
+        super().__init__(message)
+        self.area_km2, self.max_area_km2 = area_km2, max_area_km2
+
+
+#: Mean Earth radius (IUGG R1), km -- used only to size a download request, not for any physics.
+EARTH_RADIUS_KM = 6371.0088
+
+
 # =============================================================================
 # Shared helpers
 # =============================================================================
@@ -112,6 +124,27 @@ def site_bbox_with_margin(cfg: SiteConfig, margin_deg: float = BBOX_MARGIN_DEG) 
         round(min_lon - margin_deg, 6), round(min_lat - margin_deg, 6),
         round(max_lon + margin_deg, 6), round(max_lat + margin_deg, 6),
     )
+
+
+def bbox_area_km2(bbox: Bbox) -> float:
+    """Area (km^2) of a lon/lat box `(west, south, east, north)` on a sphere of radius
+    `EARTH_RADIUS_KM`: R^2 * dlon * (sin(north) - sin(south)). Deterministic, no projection."""
+    west, south, east, north = bbox
+    return EARTH_RADIUS_KM ** 2 * math.radians(east - west) * \
+        (math.sin(math.radians(north)) - math.sin(math.radians(south)))
+
+
+def check_request_area(cfg: SiteConfig, max_area_km2: float, margin_deg: float = BBOX_MARGIN_DEG) -> float:
+    """Area (km^2) of the bbox actually requested for `cfg` (far-field bbox + `margin_deg`);
+    raises `RequestAreaTooLarge` BEFORE any download when it exceeds `max_area_km2`
+    (`config/m1_ingestion.yaml` `max_request_area_km2`)."""
+    area = round(bbox_area_km2(site_bbox_with_margin(cfg, margin_deg)), 1)
+    if area > max_area_km2:
+        raise RequestAreaTooLarge(
+            f"site '{cfg.site.id}': the far-field download request covers {area} km^2, above the "
+            f"configured cap of {max_area_km2} km^2 (config/m1_ingestion.yaml max_request_area_km2); "
+            "shrink domains.far_field.bbox or raise the cap deliberately", area, max_area_km2)
+    return area
 
 
 def opentopography_api_key() -> str:
@@ -440,6 +473,11 @@ def main(argv: list[str] | None = None) -> int:
     raw_dir = Path(args.data_dir or default_data_dir()) / cfg.site.id / "raw"
 
     products = [p.strip() for p in args.products.split(",") if p.strip()]
+    from .ingest import load_settings  # deferred: ingest imports this module
+    try:
+        check_request_area(cfg, load_settings().max_request_area_km2)
+    except RequestAreaTooLarge as e:
+        raise SystemExit(str(e)) from None
     known = set(OPENTOPOGRAPHY_PRODUCTS) | {"worldcover"}
     if unknown := sorted(set(products) - known):
         raise SystemExit(f"unknown product(s) {unknown}; choose from {sorted(known)}")

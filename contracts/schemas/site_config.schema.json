@@ -1358,6 +1358,19 @@
           ],
           "default": null,
           "title": "River"
+        },
+        "country_iso3": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Country Iso3"
         }
       },
       "required": [

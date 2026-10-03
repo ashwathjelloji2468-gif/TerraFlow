@@ -33,7 +33,7 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import numpy as np
 import rasterio
@@ -71,15 +71,45 @@ def _event_for_imagery(cfg: SiteConfig) -> Event:
     )
 
 
-def raw_rgb_path(source: str | None, repo_root: Path = REPO_ROOT) -> Path:
+class UnsafeImageryPath(ValueError):
+    """An event imagery `source` that does not name a GeoTIFF inside `cache/gee/<site_id>/`."""
+
+
+#: Event imagery GeoTIFFs live only here (repo-root-relative), one folder per site.
+IMAGERY_CACHE_ROOT = ("cache", "gee")
+IMAGERY_SUFFIXES = (".tif", ".tiff")
+
+
+def raw_rgb_path(source: str | None, repo_root: Path = REPO_ROOT, site_id: str | None = None) -> Path:
     """The `..._rgb.tif` sibling of the analysis GeoTIFF an event's `imagery_pre_event`/
     `imagery_post_event.source` points at (e.g. `cache/gee/teesta/teesta_pre_event.tif` ->
-    `cache/gee/teesta/teesta_pre_event_rgb.tif`), resolved under `repo_root`."""
+    `cache/gee/teesta/teesta_pre_event_rgb.tif`), resolved under `repo_root`.
+
+    `source` comes from a site config, which `POST /sites` accepts from a client, and the returned
+    path is later READ (convert) and WRITTEN (live refresh). So it must be a relative POSIX path
+    `cache/gee/<site>/.../<name>.tif|.tiff` with no `..`, no absolute/drive/backslash/NUL parts, and
+    its resolved location (symlinks followed) must stay inside `<repo_root>/cache/gee/` -- and inside
+    `cache/gee/<site_id>/` when `site_id` is given, so one site cannot read or overwrite another
+    site's imagery. Anything else raises `UnsafeImageryPath` (a `ValueError`) before any I/O."""
     if not source:
         raise ValueError("imagery source is not set (SourcedValue.source is empty)")
-    src_path = Path(source)
-    rgb_name = f"{src_path.stem}_rgb{src_path.suffix}"
-    return repo_root / src_path.with_name(rgb_name)
+    if not isinstance(source, str) or any(c in source for c in ("\\", "\x00", ":")):
+        raise UnsafeImageryPath("imagery source must be a plain relative POSIX path under cache/gee/")
+    rel = PurePosixPath(source)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise UnsafeImageryPath("imagery source must be relative and must not contain '..'")
+    root_n = len(IMAGERY_CACHE_ROOT)
+    if rel.parts[:root_n] != IMAGERY_CACHE_ROOT or len(rel.parts) < root_n + 2:
+        raise UnsafeImageryPath("imagery source must be a file under cache/gee/<site_id>/")
+    if site_id is not None and rel.parts[root_n] != site_id:
+        raise UnsafeImageryPath(f"imagery source must be under cache/gee/{site_id}/ for site '{site_id}'")
+    if rel.suffix.lower() not in IMAGERY_SUFFIXES:
+        raise UnsafeImageryPath(f"imagery source must be a GeoTIFF ({', '.join(IMAGERY_SUFFIXES)})")
+    rgb = Path(repo_root).joinpath(*rel.with_name(f"{rel.stem}_rgb{rel.suffix}").parts)
+    allowed = Path(repo_root).joinpath(*IMAGERY_CACHE_ROOT, *((site_id,) if site_id else ())).resolve()
+    if not rgb.resolve().is_relative_to(allowed):
+        raise UnsafeImageryPath("imagery source resolves outside cache/gee/ (symlink escape)")
+    return rgb
 
 
 def staging_path(final: Path) -> Path:
@@ -191,7 +221,7 @@ def convert(
     entries = []
     for phase in PHASES:
         sv = event.imagery_pre_event if phase == "pre" else event.imagery_post_event
-        raw_tif = raw_rgb_path(sv.source, repo_root)
+        raw_tif = raw_rgb_path(sv.source, repo_root, site_id)
         date_str = str(sv.value)[:10]
         stem = f"{event.id}_{phase}_{date_str.replace('-', '')}"
         entry = _convert_one(raw_tif, stem, imagery_dir)
@@ -223,7 +253,7 @@ def refresh(
         from .live_render import render_event_rgb  # deferred: only needed for a live attempt
 
         event = _event_for_imagery(cfg)
-        staged = [staging_path(raw_rgb_path(sv.source, Path(repo_root)))
+        staged = [staging_path(raw_rgb_path(sv.source, Path(repo_root), site_id))
                   for sv in (event.imagery_pre_event, event.imagery_post_event)]
         rendered = render_event_rgb(cfg, event, repo_root=Path(repo_root), ee_project=ee_project)
         if isinstance(rendered, dict):

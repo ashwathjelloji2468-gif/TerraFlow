@@ -18,7 +18,7 @@
     "emptyDetail": "Add a site to get started",
     "connectionError": "No site is connected yet. Add a site or connect the backend API.",
     "active": "ACTIVE SITE",
-    "resultLoaded": "Teesta solver result loaded",
+    "resultLoaded": "{site} solver result loaded",
     "siteConnected": "Site connected · result not loaded",
     "status": {
       "ready": "Ready",
@@ -298,9 +298,9 @@
   },
   "onboarding": {
     "missingInputs": "Onboarding could not be submitted.",
-    "demoTitle": "Teesta III Demo",
-    "demoDetail": "Open the registered South Lhonak 2023 D-Flow FM result. Reconstructed forcing and pilot-domain caveats remain visible in the result.",
-    "demoOpen": "Open Teesta III Demo",
+    "demoTitle": "{site} Demo",
+    "demoDetail": "Open the registered {event} D-Flow FM result. Reconstructed forcing and pilot-domain caveats remain visible in the result.",
+    "demoOpen": "Open {site} Demo",
     "validationEmpty": "No validation runs available",
     "validationEmptyDetail": "A single real solver run is not a validation dataset. No M5 LOOCV or observed-event comparison is registered for this site.",
     "validationDemo": "DEMO / EXAMPLE validation report",
@@ -309,7 +309,7 @@
     "validationError": "Validation status could not be loaded. Check the API connection and try again.",
     "validationLoocvHeading": "Emulator LOOCV",
     "validationLoocvNone": "No emulator LOOCV report is registered for this site.",
-    "validationLoocvSynthetic": "Synthetic test world — not a Teesta-specific validation",
+    "validationLoocvSynthetic": "Synthetic test world — not a site-specific validation",
     "validationHistoricalHeading": "Observed vs. simulated — {event}",
     "validationHistoricalLoading": "Loading historical-event comparison…",
     "validationHistoricalError": "Historical-event comparison could not be loaded.",
@@ -319,9 +319,9 @@
     "validationLiteratureNone": "This run has no comparable point-of-interest output yet.",
     "validationPredictedArea": "Simulated flooded area (this run)",
     "cachedImage": "Cached satellite image",
-    "openRealRun": "Open registered Teesta event result",
+    "openRealRun": "Open registered {site} event result",
     "noPairedSph": "Only one model run is available for this scenario. A SPH / Delft3D comparison needs both runs to finish, post-process and pass the SPH particle-retention check; no comparison metrics are shown until then.",
-    "libraryUnavailable": "No real scenario library is registered. The Teesta MVP contains one direct solver event run, not prepared emulator nodes.",
+    "libraryUnavailable": "No real scenario library is registered. The {site} MVP contains one direct solver event run, not prepared emulator nodes.",
     "placeholderNotice": "Everything you enter is saved as an unverified placeholder unless you give a source. Blank fields stay empty placeholders; nothing is filled in for you.",
     "locationHelp": "The dam location must fall inside the study-area bounds. The site ID is derived from the site name and must be unique.",
     "terrainHelp": "TerraFlow downloads the terrain itself once the site is registered: Copernicus GLO-30 and SRTM elevation (OpenTopography; the server needs OPENTOPOGRAPHY_API_KEY), ESA WorldCover land cover, a HydroBASINS catchment when available and GloFAS river discharge. The onboarding job compares the elevation models, picks one, and shows every step and any error in its log.",
@@ -332,11 +332,11 @@
   },
   "dataLayers": {
     "realDepthName": "D-Flow FM flood outputs",
-    "realDepthDesc": "Generated from the registered Teesta MVP solver run: depth, velocity, arrival and extent artifacts.",
+    "realDepthDesc": "Generated from the registered {site} solver run: depth, velocity, arrival and extent artifacts.",
     "pilotTerrainName": "Terrain / model domain",
     "pilotTerrainDesc": "The registered event run uses the retained pilot bed/domain geometry. It is not exposed as a standalone raster download on this page.",
     "forcingName": "Event forcing",
-    "forcingDesc": "MVP reconstructed South Lhonak forcing; the complete hydrograph is not observed.",
+    "forcingDesc": "Reconstructed event forcing (see the result caveats); the complete hydrograph is not observed.",
     "exposureName": "Population and exposure",
     "exposureDesc": "M6 impact uses cached WorldPop population raster and OSM buildings/roads; coverage notes remain on Impact Analysis.",
     "imageryName": "Sentinel event imagery",
@@ -350,10 +350,11 @@
     "unavailable": "UNAVAILABLE"
   },
   "landing": {
-    "teestaSite": "Teesta III · South Lhonak 2023",
     "registeredRun": "Registered D-Flow FM MVP run",
-    "terrainAwaiting": "Open Teesta III Demo to load the registered flood result.",
-    "directRunInfo": "The registered Teesta MVP run is available. A prepared multi-scenario library is not connected."
+    "terrainAwaiting": "Open {site} Demo to load the registered flood result.",
+    "directRunInfo": "The registered {site} MVP run is available. A prepared multi-scenario library is not connected.",
+    "demoSite": "{site} · {event}",
+    "demoIndex": "01 / {short} DEMO"
   },
   "scenarios": {
     "eyebrow": "SCENARIO DESIGN · BREACH WHAT-IF",
@@ -423,6 +424,12 @@
     "failedAcceptance": "Failed acceptance",
     "pilot": "Pilot runs",
     "blockedBy": "Blocked by",
-    "note": "A run is queryable only after acceptance (solver, outputs, identity, terrain, forcing, hydraulic path, POI wetting). Pilot runs are never production-accepted."
+    "note": "A run is queryable only after acceptance (solver, outputs, identity, terrain, forcing, hydraulic path, POI wetting). Pilot runs are never production-accepted.",
+    "onboardingTitle": "Data readiness for this site",
+    "ready": "Ready inputs",
+    "blocked": "Blocked inputs",
+    "controlledPass": "Controlled pass",
+    "onboardingPending": "Readiness is shown once the onboarding job has finished its preparation stages.",
+    "onboardingNote": "Production-gate view of this site's inputs (GET /sites/{id}/readiness). Placeholder and blocked inputs are not production data. Candidate evidence (OSM POI matches, modelled GloFAS discharge statistics — modelled, not gauged) stays pending review in the server-side Data Foundation report and is never applied automatically."
   }
 }

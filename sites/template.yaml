@@ -35,6 +35,8 @@ site:
   name: <Site name>
   region: <State, district(s)>
   river: <River system>
+  # country_iso3: <ISO 3166-1 alpha-3, e.g. IND>   # optional (Feature 16); selects the national WorldPop
+  #                                                 # raster. Never inferred from region/bbox; omit if unknown.
 
 crs:
   utm_epsg:                        # projected CRS for all model grids (WGS 84 / UTM zone nnN -> 326nn)

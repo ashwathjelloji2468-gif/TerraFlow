@@ -59,8 +59,45 @@ def prepare_terrain(site_id: str, data_dir: str | Path, config: dict | None = No
                 water_polygon = lake
         except ValueError:
             water_polygon = None
-    return build_terrain(cfg, summary["selected_dem"], raw_dir, site_dir / "terrain",
-                         water_polygon_path=water_polygon)
+    result = build_terrain(cfg, summary["selected_dem"], raw_dir, site_dir / "terrain",
+                           water_polygon_path=water_polygon)
+    prepare_poi_evidence(cfg, data_dir, event=event)
+    return result
+
+
+#: Feature 16 P4: optional onboarding step settings (OFF by default).
+ONBOARDING_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "config" / "onboarding.yaml"
+
+
+def poi_evidence_enabled(path: str | Path | None = None) -> bool:
+    path = Path(path or ONBOARDING_SETTINGS_PATH)
+    if not path.is_file():
+        return False
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    value = (raw.get("poi_evidence") or {}).get("enabled", False)
+    return value is True  # only an explicit boolean true enables it
+
+
+def prepare_poi_evidence(cfg, data_dir: str | Path, event=None, *, enabled: bool | None = None) -> dict | None:
+    """Optional (config/onboarding.yaml `poi_evidence.enabled`, default false): match the site's POIs
+    against an OSM extract ALREADY present in `<data>/<site>/exposure/` (no download, no network).
+    Writes `exposure/poi_evidence.json` with pending CANDIDATE / UNRESOLVED records only. Never
+    raises and never fails onboarding: a missing extract is reported UNVERIFIABLE and skipped."""
+    event = event or (lambda msg: None)
+    if not (poi_evidence_enabled() if enabled is None else enabled):
+        return None
+    from backend.m6_impact import poi_candidates
+    try:
+        out = poi_candidates.run(cfg, data_dir=data_dir)
+    except Exception as e:  # noqa: BLE001 -- optional step: report, never fail the job
+        event(f"poi evidence: skipped ({type(e).__name__}: {e})")
+        return {"site_id": cfg.site.id, "status": "error", "reason": type(e).__name__}
+    if out["status"] == poi_candidates.UNVERIFIABLE:
+        event(f"poi evidence: {out['reason']} (optional; onboarding continues)")
+    else:
+        event(f"poi evidence: {out['counts']} written={out['written']} (pending review; nothing approved)")
+    out.pop("result", None)
+    return out
 
 
 def prepare_breach(site_id: str, data_dir: str | Path, event=None) -> Path:

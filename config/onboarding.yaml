@@ -1,0 +1,9 @@
+# Feature 16 P4: optional onboarding steps. Engineering switches, not site facts.
+
+poi_evidence:
+  # Match the site's points_of_interest against an OSM exposure extract that is ALREADY in
+  # data/<site_id>/exposure/ (written by `python -m backend.m6_impact.exposure_osm`). No download is
+  # made here. Output: data/<site_id>/exposure/poi_evidence.json -- pending CANDIDATE / UNRESOLVED
+  # records only (OSM is secondary evidence; nothing is approved or applied). Missing extract ->
+  # UNVERIFIABLE, onboarding continues. OFF by default.
+  enabled: false
