@@ -3188,3 +3188,27 @@ so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passe
   (only registers if its integrity checks pass; records its real acceptance); once the gate is READY:
   `python -m backend.campaign teesta --production` then `python -m backend.m0_api.worker` (detached), then
   `python -m backend.m0_api.run_registration index teesta` and `GET /api/v1/sites/teesta/readiness`.
+
+## 2026-10-03 — Feature 14: Teesta input resolution (evidence-tracked, reviewer-approved)
+- Scope (branch `feature14/teesta-input-resolution`; no repo roadmap defined Feature 14, scope taken from the
+  branch name and the Feature 13 blocker list): a safe path from documented evidence to sourced Teesta inputs.
+  No input value was changed: `sites/teesta.yaml` is untouched and Teesta stays BLOCKED.
+- `config/input_resolution/teesta.yaml`: register of PROPOSED values with `docs/data_sources.md` source ID,
+  verbatim quote, basis (direct / mapping / interpretation) and an empty `approval` (only a named reviewer fills
+  `approved_by` + `approved_at`; tooling never does). Candidates: Teesta III `dam_height` 60 m (src_043, direct),
+  Teesta III `dam_type` FD (src_043 "CFRD" + Equations.md concrete-faced -> FD, mapping), South Lhonak
+  `water_volume_above_invert` 5e7 m³ (src_073 "about 50 million m³ drained", interpretation). Evidence recorded
+  but NOT proposed: FRL 1585 m (design maximum, not event level), gross storage 5.08 MCM (not volume above
+  invert), GloFAS base flow (modelled; never copied into a config).
+- `backend/shared/input_resolution.py` (`validate` / `report` / `apply`): quotes must appear verbatim in the cited
+  section, targets/units must match the site config, approvals must be complete; `apply` writes ONLY approved
+  entries (value, `status: sourced`, citation incl. reviewer) with comments preserved and re-validates the config;
+  dry run by default. `report` joins the Feature 13 gate with the register:
+  `docs/teesta_input_resolution.md` (generated) — APPROVED 0 · CANDIDATE 3 · UNRESOLVED 39, each with the
+  config's own "Replace from:" artifact.
+- Feature 13 untouched: gate, acceptance, pilot classification and the pilot run's FAIL results unchanged.
+- Tests: `tests/shared/test_input_resolution.py` (12): fabricated quote / unknown source / unit / target / basis /
+  half approval refused; candidates never applied; an approved entry applied on a temp copy flips only that gate
+  item to READY while the site stays BLOCKED; committed report == generated.
+- Blocked (needs people, not code): reviewer sign-off on the 3 candidates; sources for base flow, POIs, domains,
+  event times, Teesta III trigger/storage/initial level, DEM/datum approval, run budget, cascade contract decision.

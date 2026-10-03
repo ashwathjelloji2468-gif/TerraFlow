@@ -1,0 +1,55 @@
+# Feature 14: Teesta input-resolution register.
+#
+# One entry per site-config input for which the repository already holds documented evidence
+# (docs/data_sources.md). An entry is only EVIDENCE + a PROPOSED value until a named person approves
+# it: `approval.approved_by` / `approved_at` are filled in by the team reviewer, never by tooling.
+# `python -m backend.shared.input_resolution apply teesta --write` copies ONLY approved entries into
+# sites/teesta.yaml (status -> sourced). Every `quote` must appear verbatim in the cited
+# docs/data_sources.md section; `validate` refuses the register otherwise.
+#
+# Inputs with no entry here are UNRESOLVED: the report lists them with the "Replace from:" artifact
+# already written in sites/teesta.yaml. Nothing here invents a value: base flow, POIs, domains,
+# event times, Teesta III trigger, storage curves and initial levels have no repo source yet.
+site_id: teesta
+entries:
+  - target: dams[1].breach_inputs.dam_height
+    proposed_value: 60
+    unit: m
+    source_id: src_043
+    quote: "60 m maximum height above riverbed"
+    basis: direct
+    notes: "Existing (2023) Teesta III CFRD per the 'Existing Salient Features' column; not the proposed replacement dam."
+    approval: {approved_by: null, approved_at: null}
+
+  - target: dams[1].breach_inputs.dam_type
+    proposed_value: FD
+    unit: enum
+    source_id: src_043
+    quote: "CFRD"
+    basis: mapping
+    notes: "src_043 states the 2023 dam was a CFRD (concrete-faced rockfill). docs/Equations.md maps concrete-faced -> FD. Reviewer must confirm the mapping; Z20 still refuses FD (Equations.md §7)."
+    approval: {approved_by: null, approved_at: null}
+
+  - target: dams[0].breach_inputs.water_volume_above_invert
+    proposed_value: 50000000
+    unit: m^3
+    source_id: src_073
+    quote: "about 50 million m³ drained"
+    basis: interpretation
+    notes: "Reported DRAINED volume, taken as the volume above the breach invert. That equivalence is an interpretation the reviewer must accept or reject; the figure is approximate ('about')."
+    approval: {approved_by: null, approved_at: null}
+
+# Evidence recorded but deliberately NOT proposed as values (the source does not state the input):
+evidence_only:
+  - target: dams[1].initial_water_level
+    source_id: src_043
+    quote: "FRL EL 1585 m"
+    reason: "Full Reservoir Level is the design maximum, not the reservoir level at the 2023-10-04 failure."
+  - target: dams[1].breach_inputs.water_volume_above_invert
+    source_id: src_043
+    quote: "gross storage 5.08 MCM (EL 1530–1585 m)"
+    reason: "Storage between two design elevations, not the volume above the breach invert at failure."
+  - target: domains.far_field.inflow.base_flow
+    source_id: src_075
+    quote: "never written into a site config automatically"
+    reason: "GloFAS is modelled (not gauged) context for a team decision; it is never copied into the config."
