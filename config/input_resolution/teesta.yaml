@@ -1,8 +1,9 @@
 # Feature 14: Teesta input-resolution register.
 #
 # One entry per site-config input for which the repository already holds documented evidence
-# (docs/data_sources.md). An entry is only EVIDENCE + a PROPOSED value until a named person approves
-# it: `approval.approved_by` / `approved_at` are filled in by the team reviewer, never by tooling.
+# (docs/data_sources.md). An entry is only EVIDENCE + a PROPOSED value until a named person decides
+# it (Feature 15): `decision.state` approved|rejected with `reviewer`, `decided_at` and `rationale`,
+# filled in by the team reviewer, never by tooling. Rejected entries stay here as a record.
 # `python -m backend.shared.input_resolution apply teesta --write` copies ONLY approved entries into
 # sites/teesta.yaml (status -> sourced). Every `quote` must appear verbatim in the cited
 # docs/data_sources.md section; `validate` refuses the register otherwise.
@@ -19,7 +20,7 @@ entries:
     quote: "60 m maximum height above riverbed"
     basis: direct
     notes: "Existing (2023) Teesta III CFRD per the 'Existing Salient Features' column; not the proposed replacement dam."
-    approval: {approved_by: null, approved_at: null}
+    decision: {state: pending, reviewer: null, decided_at: null, rationale: null}
 
   - target: dams[1].breach_inputs.dam_type
     proposed_value: FD
@@ -28,7 +29,7 @@ entries:
     quote: "CFRD"
     basis: mapping
     notes: "src_043 states the 2023 dam was a CFRD (concrete-faced rockfill). docs/Equations.md maps concrete-faced -> FD. Reviewer must confirm the mapping; Z20 still refuses FD (Equations.md §7)."
-    approval: {approved_by: null, approved_at: null}
+    decision: {state: pending, reviewer: null, decided_at: null, rationale: null}
 
   - target: dams[0].breach_inputs.water_volume_above_invert
     proposed_value: 50000000
@@ -37,7 +38,7 @@ entries:
     quote: "about 50 million m³ drained"
     basis: interpretation
     notes: "Reported DRAINED volume, taken as the volume above the breach invert. That equivalence is an interpretation the reviewer must accept or reject; the figure is approximate ('about')."
-    approval: {approved_by: null, approved_at: null}
+    decision: {state: pending, reviewer: null, decided_at: null, rationale: null}
 
 # Evidence recorded but deliberately NOT proposed as values (the source does not state the input):
 evidence_only:
