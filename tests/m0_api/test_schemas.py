@@ -11,6 +11,7 @@ from backend.m0_api import schemas
 # example file -> schema file. Kept explicit (not glob-matched by stripping
 # suffixes) so a rename on one side without the other fails loudly here.
 EXAMPLE_TO_SCHEMA = {
+    "site_readiness.example.json": "site_readiness.schema.json",  # Feature 13
     "health.example.json": "health.schema.json",
     "error.example.json": "error.schema.json",
     "site_summary.example.json": "site_summary.schema.json",

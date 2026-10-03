@@ -140,6 +140,14 @@ try {
     assert.equal(meta.has_placeholders, !!fq.flags.has_placeholders);
     assert.deepEqual(JSON.parse(JSON.stringify(meta)), meta);
   });
+  await test('F13: readiness summary never reports missing data as READY', () => {
+    const r = JSON.parse(readFileSync(new URL('../../contracts/examples/site_readiness.example.json', import.meta.url)));
+    assert.equal(src.readinessSummary(null).verdict, 'UNAVAILABLE');
+    const s = src.readinessSummary(r);
+    assert.equal(s.verdict, 'BLOCKED'); assert.equal(s.blockingCount, r.blocking.length);
+    assert.deepEqual(s.pilotRuns, ['teesta_2023_mvp__delft3d']); assert.deepEqual(s.acceptedRuns, []);
+    assert.equal(src.readinessSummary({...r, production_verdict: 'READY', blocking: ['x']}).verdict, 'BLOCKED');
+  });
   await test('offline bundle with Feature 11 compare stays serializable and collects layer URLs', () => {
     const compare = ex('compare'); compare.scenario_id = 's 1';
     const bundle = {siteId: 'synth', floodQuery: flood, impact, compare, timeline: null, validation: null, gee: null, scene3d: null};

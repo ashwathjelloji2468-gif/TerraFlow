@@ -2,7 +2,7 @@
 // GeeLayers, Validation) into dashboard / compare / export display state. Nothing here computes a
 // flood number: every value is read from a response, and a missing value is `null` -> "Unavailable",
 // never 0. Re-exported through src/data/source.ts (the frontend data seam).
-import type {CompareResponse, Estimate, FloodQueryResponse, GeeLayers, HistoricalValidationResponse, ImpactResponse, ValidationResponse} from './api';
+import type {SiteReadiness, CompareResponse, Estimate, FloodQueryResponse, GeeLayers, HistoricalValidationResponse, ImpactResponse, ValidationResponse} from './api';
 
 export const UNAVAILABLE = 'Unavailable';
 
@@ -146,4 +146,15 @@ export function statusChips(q: FloodQueryResponse | null, c: CompareResponse | n
     {key: 'emulator', label: 'Emulator', state: m.kind === 'emulator_prediction' ? 'Emulator prediction available' : 'No emulator prediction', ok: m.kind === 'emulator_prediction'},
     {key: 'monitoring', label: 'Monitoring', state: g.label === 'UNAVAILABLE' || g.label === 'NONE' ? 'Monitoring unavailable' : `Monitoring ${g.label}`, ok: g.label === 'LIVE' || g.label === 'CACHE'},
   ];
+}
+
+export type ReadinessSummary = {verdict: 'READY' | 'BLOCKED' | 'UNAVAILABLE'; blockingCount: number;
+  counts: Record<string, number>; runCounts: Record<string, number>; topBlocking: string[]; pilotRuns: string[]; acceptedRuns: string[]};
+/** Feature 13: compact production-readiness summary. No readiness response -> UNAVAILABLE, never READY. */
+export function readinessSummary(r: SiteReadiness | null): ReadinessSummary {
+  if (!r) return {verdict: 'UNAVAILABLE', blockingCount: 0, counts: {}, runCounts: {}, topBlocking: [], pilotRuns: [], acceptedRuns: []};
+  return {verdict: r.production_verdict === 'READY' && r.blocking.length === 0 ? 'READY' : 'BLOCKED',
+    blockingCount: r.blocking.length, counts: r.counts, runCounts: r.run_counts, topBlocking: r.blocking.slice(0, 5),
+    pilotRuns: r.runs.filter(x => x.status === 'PILOT').map(x => x.run_id),
+    acceptedRuns: r.runs.filter(x => x.status === 'ACCEPTED').map(x => x.run_id)};
 }

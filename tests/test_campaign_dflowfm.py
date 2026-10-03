@@ -15,7 +15,11 @@ from backend.m0_api import registry, jobs
 from backend.m0_api.worker import Worker
 
 
-def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_path, monkeypatch):
+import pytest
+
+
+@pytest.mark.parametrize("accepted", [True, False])
+def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_path, monkeypatch, accepted):
     data_dir, sites_dir = tmp_path / "data", tmp_path / "sites"
     monkeypatch.setenv("SIH26_DATA_DIR", str(data_dir))
     monkeypatch.setenv("SIH26_FAKE_STAGE_S", "0")
@@ -83,6 +87,12 @@ def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_pa
                 "scenario_id": kwargs["scenario_id"], "model": "delft3d",
                 "status": "postprocessed", "wall_time_s": 0.01}
     monkeypatch.setattr("backend.m3_common.postprocess.postprocess_dflowfm", fake_postprocess)
+    # Feature 13: this test covers worker plumbing; acceptance itself is tested in
+    # tests/m3_dflowfm/test_acceptance.py. Here the synthetic run is declared ACCEPTED.
+    import backend.m3_dflowfm.acceptance as acceptance_module
+    monkeypatch.setattr(acceptance_module, "evaluate_run", lambda *a, **k: {
+        "status": "ACCEPTED" if accepted else "FAILED_ACCEPTANCE", "failed_checks": [] if accepted else ["poi_wetting"],
+        "unavailable_checks": [], "checks": {}})
 
     worker = Worker()
     worker.tick()  # queued -> simulating
@@ -90,7 +100,21 @@ def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_pa
     worker.tick()  # first failure queues one retry
     assert conn.execute("SELECT status FROM runs WHERE run_id = ?", (cases[0].run_id,)).fetchone()[0] == "queued"
     worker.tick()  # second launch
-    worker.tick()  # success, post-process, M5 cache
+    worker.tick()  # success, post-process, acceptance, M5 cache
+    if not accepted:  # Feature 13: FAILED_ACCEPTANCE -> failed, no retry, no cache, outputs kept
+        row = conn.execute("SELECT status, meta_json, error FROM runs WHERE run_id = ?", (cases[0].run_id,)).fetchone()
+        assert row[0] == "failed" and row[2].startswith("FAILED_ACCEPTANCE") and attempts["count"] == 2
+        assert json.loads(row[1])["acceptance"]["status"] == "FAILED_ACCEPTANCE"
+        assert not (data_dir / "synth/emulator/delft3d/run_cache.json").exists()
+        run_meta = json.loads((data_dir / "synth/runs" / cases[0].run_id / "run_meta.json").read_text())
+        assert run_meta["acceptance"]["status"] == "FAILED_ACCEPTANCE" and run_meta["provenance"]["completed_at"]
+        status = json.loads((data_dir / "synth/campaign_status.json").read_text())
+        assert status["summary"]["FAILED_ACCEPTANCE"] == 1 and status["summary"]["SUCCEEDED"] == 0
+        index = json.loads((data_dir / "synth/runs/index.json").read_text())
+        assert index["runs"][0]["state"] == "FAILED_ACCEPTANCE" and index["runs"][0]["queryable"] is False
+        worker.close()
+        conn.close()
+        return
     row = conn.execute("SELECT status FROM runs WHERE run_id = ?", (cases[0].run_id,)).fetchone()
     assert row[0] == "postprocessed"
     assert attempts["count"] == 2

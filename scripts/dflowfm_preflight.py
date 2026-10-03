@@ -3,7 +3,7 @@
 
 Usage:
   python scripts/dflowfm_preflight.py <site_id> [--data-dir DIR] [--sites-dir DIR]
-                                      [--kernel PATH] [--min-free-gb N] [--json]
+                                      [--kernel PATH] [--min-free-gb N] [--json] [--production]
 
 Kernel: --kernel, else $SIH26_DFLOWFM_KERNEL, else the documented default
 ~/delft3d/dflowfm-2026.01/lnx64/bin/run_dflowfm.sh. Data dir: --data-dir, else $SIH26_DATA_DIR,
@@ -29,9 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--kernel", type=Path)
     parser.add_argument("--min-free-gb", type=float)
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    parser.add_argument("--production", action="store_true",
+                        help="Feature 13: placeholders are BLOCKED and the production-readiness gate must be READY")
     args = parser.parse_args(argv)
     report = run_preflight(args.site_id, data_dir=args.data_dir, sites_dir=args.sites_dir,
-                           kernel=args.kernel, min_free_gb=args.min_free_gb)
+                           kernel=args.kernel, min_free_gb=args.min_free_gb, production=args.production)
     print(json.dumps(report, indent=2) if args.json else format_report(report))
     return {BLOCKED: 2, WARNING: 1}.get(report["overall"], 0)
 

@@ -19,6 +19,7 @@ import siteAccepted from '../../../contracts/examples/site_create_accepted.examp
 import siteDetail from '../../../contracts/examples/site_detail.example.json';
 import siteList from '../../../contracts/examples/site_list.example.json';
 import siteRequest from '../../../contracts/examples/site_create_request.example.json';
+import siteReadiness from '../../../contracts/examples/site_readiness.example.json';
 import siteSummary from '../../../contracts/examples/site_summary.example.json';
 import styles from '../../../contracts/styles.json';
 import timeline from '../../../contracts/examples/timeline.example.json';
@@ -111,6 +112,18 @@ export type GeeProductStatus = {
   cloud_pct: number | null; method: string | null; error: string | null; fallback_reason: string | null;
 };
 export type GeeRefresh = {attempted_at: string; earth_engine_initialised: boolean; products: Record<string, string>; live_products: string[]; errors: string[]};
+/** Feature 13 — GET /sites/{site_id}/readiness (contracts/schemas/site_readiness.schema.json). */
+export type ReadinessInputStatus = 'READY' | 'BLOCKED' | 'PLACEHOLDER' | 'CONTROLLED_PASS';
+export type ReadinessRunStatus = 'ACCEPTED' | 'PILOT' | 'FAILED_ACCEPTANCE' | 'FAILED' | 'QUEUED' | 'RUNNING' | 'NOT_EVALUATED';
+export type SiteReadiness = {
+  site_id: string; model: 'delft3d'; evaluated_at: string; production_verdict: 'READY' | 'BLOCKED'; config_loaded: boolean;
+  inputs: Array<{key: string; category: string; status: ReadinessInputStatus; blocking: boolean; source: string | null; detail: string}>;
+  blocking: string[]; counts: Record<string, number>;
+  runs: Array<{run_id: string; scenario_id: string; model: 'delft3d' | 'sph'; status: ReadinessRunStatus; registry_status: string;
+    acceptance_status: string | null; run_class: string | null; queryable: boolean; failed_checks?: string[]; unavailable_checks?: string[]}>;
+  run_counts: Record<string, number>;
+  caveats: Array<{id: string; severity: 'info' | 'warning' | 'critical'; text_key: string}>;
+};
 export type Timeline = {
   query_id: string; interval_s: number; t_end_s: number;
   frames: Array<{t_s: number; median_url: string; high_url: string; possible_url: string; bounds_latlng: number[][]}>;
@@ -230,7 +243,7 @@ const fixtures: Record<string, unknown> = {
   health, styles, sites: siteList, site: siteDetail, siteSummary, siteRequest,
   siteAccepted, jobAccepted, jobStatus, floodRequest, floodResponse, impact,
   compare, validation, historicalValidation, geeLayers, scene3d, timeline,
-  extent, geojson, breachParams, scenarioDesign, whatifResponse, error: errorExample,
+  extent, geojson, breachParams, scenarioDesign, whatifResponse, siteReadiness, error: errorExample,
 };
 
 /** Contract §2.7 error message, either bare or wrapped by FastAPI's HTTPException as `{detail: ...}`. */
@@ -268,6 +281,7 @@ export const api = {
   styles: () => request('/styles', {}, 'styles'),
   sites: () => request<SiteSummary[]>('/sites', {}, 'sites'),
   site: (siteId: string) => request<SiteDetail>(`/sites/${encodeURIComponent(siteId)}`, {}, 'site'),
+  readiness: (siteId: string) => request<SiteReadiness>(`/sites/${encodeURIComponent(siteId)}/readiness`, {}, 'siteReadiness'),
   design: (siteId: string) => request<ScenarioDesign>(`/sites/${encodeURIComponent(siteId)}/design`, {}, 'scenarioDesign'),
   whatif: (siteId: string, body: WhatIfRequest) => request<WhatIfResponse>(`/sites/${encodeURIComponent(siteId)}/whatif`, json(body), 'whatifResponse'),
   createSite: (body: SiteCreateRequest) => request<SiteCreateAccepted>('/sites', json(useMocks ? siteRequest : body), 'siteAccepted'),

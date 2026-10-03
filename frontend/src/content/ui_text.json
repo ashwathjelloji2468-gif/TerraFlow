@@ -82,7 +82,9 @@
       "outside_trained_range": "Inputs are outside the emulator's training range; this is extrapolation.",
       "scenario_emulator_probability": "Scenario mode: zones use the emulator's own uncertainty for one scenario, not breach-parameter uncertainty.",
       "query_placeholders": "The flood query used placeholder site inputs; impact numbers inherit that.",
-      "loss_placeholder": "Monetary loss is unavailable because a conversion factor is still a placeholder."
+      "loss_placeholder": "Monetary loss is unavailable because a conversion factor is still a placeholder.",
+      "pilot_run_not_production_accepted": "Pilot run: registered for demonstration with its acceptance result recorded; not a production-accepted result.",
+      "production_gate_blocked": "Production gate BLOCKED: required site inputs are placeholders or missing."
     },
     "unknownCaveat": "This result includes a contract caveat.",
     "whatifTitle": "Instant what-if (emulator)",
@@ -411,5 +413,16 @@
     "observedData": "Observed extent",
     "literatureComparison": "Literature comparison",
     "comparisonOnly": "Comparison only (not validation)"
+  },
+  "readiness": {
+    "title": "Production readiness (D-Flow FM)",
+    "unavailable": "UNAVAILABLE",
+    "blocking": "Blocking inputs",
+    "placeholders": "Placeholder inputs",
+    "accepted": "Accepted runs",
+    "failedAcceptance": "Failed acceptance",
+    "pilot": "Pilot runs",
+    "blockedBy": "Blocked by",
+    "note": "A run is queryable only after acceptance (solver, outputs, identity, terrain, forcing, hydraulic path, POI wetting). Pilot runs are never production-accepted."
   }
 }

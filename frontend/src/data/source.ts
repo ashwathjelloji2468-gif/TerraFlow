@@ -10,7 +10,7 @@
 import type {Grid, Params, Result} from '@/lib/model';
 import type {Scenario} from '@/lib/sentriq';
 import siteRuntimeConfig from '../content/site_runtime.json';
-import {api, ApiError, useMocks, type ScenarioDesign, type ScenarioPoint, type WhatIfRequest, type WhatIfResponse, type FloodQueryRequest, type FloodQueryResponse, type ImpactResponse, type CompareResponse, type GeeLayers, type Timeline, type SiteSummary, type SiteDetail, type JobStatus, type ValidationResponse, type HistoricalValidationResponse, type Scene3DResponse} from './api';
+import {api, ApiError, useMocks, type ScenarioDesign, type ScenarioPoint, type WhatIfRequest, type WhatIfResponse, type FloodQueryRequest, type FloodQueryResponse, type ImpactResponse, type CompareResponse, type GeeLayers, type Timeline, type SiteSummary, type SiteDetail, type JobStatus, type ValidationResponse, type HistoricalValidationResponse, type Scene3DResponse, type SiteReadiness} from './api';
 import uiText from '../content/ui_text.json';
 import * as offlineCache from '../offline/cache-store';
 import {offlineProvenance, collectGlobalUrls, collectResourceUrls, type OfflineBundle} from '../offline/resource-list';
@@ -22,8 +22,8 @@ export {siteIdFromName, validateWizardSite, missingTerrainFields} from './site-c
 export type Awaiting = {status: 'awaiting'; reason: string};
 
 export type {SiteSummary} from './api';
-export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename, statusChips, directDetail} from './dashboard';
-export type {StatusChip, DashboardMetric, GeeStatus, ValidationStatus, CompareOption, CompareSection, MethodInfo} from './dashboard';
+export {UNAVAILABLE, methodInfo, estimateValue, dashboardMetrics, zoneCounts, geeStatus, validationStatus, compareScenarioOptions, compareSections, exportContents, exportFilename, statusChips, directDetail, readinessSummary} from './dashboard';
+export type {ReadinessSummary, StatusChip, DashboardMetric, GeeStatus, ValidationStatus, CompareOption, CompareSection, MethodInfo} from './dashboard';
 import {exportFilename} from './dashboard';
 export type {SavedQuery} from '../offline/cache-store';
 export type {OfflineBundle} from '../offline/resource-list';
@@ -311,3 +311,9 @@ export function firstBreachDam<T>(dams: T[] | undefined): T | undefined {
   return dams?.[0];
 }
 
+
+/** Feature 13 — GET /sites/{site_id}/readiness: production gate + per-run acceptance. */
+export async function getReadiness(siteId: string): Promise<SiteReadiness> {
+  if (!siteId) throw new Error('A site_id is required to load production readiness.');
+  return api.readiness(siteId);
+}

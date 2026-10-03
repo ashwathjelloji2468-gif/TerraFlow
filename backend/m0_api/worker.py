@@ -475,9 +475,30 @@ class Worker:
                     if missing_facts and "placeholder_data" not in post_meta["caveats"]:
                         post_meta["caveats"].append("placeholder_data")
                     post_meta["wall_time_s"] = meta.get("wall_time_s")
+                    # Feature 13: full per-run provenance, then acceptance BEFORE the M5 cache / registry.
+                    post_meta["provenance"] = {**(scenario.get("provenance") or meta.get("provenance") or {}),
+                                               "completed_at": registry.utc_now()}
+                    post_meta["artifact_paths"] = {"case": str(case_dir), "run_dir": str(run["run_dir"])}
                     (Path(run["run_dir"]) / "run_meta.json").write_text(json.dumps(post_meta, indent=2) + "\n")
-                    register_run(data_dir, row["site_id"], run["run_id"], scenario["params"], post_meta)
+                    from backend.m3_dflowfm.acceptance import ACCEPTED, evaluate_run
+                    acceptance = evaluate_run(run["run_dir"], run_id=run["run_id"], scenario_id=run["scenario_id"],
+                                              site_dir=data_dir / row["site_id"], case_dir=case_dir,
+                                              model_stem=meta.get("model_stem"), terrain_dir=terrain, spinup_s=7200.0)
+                    post_meta["acceptance"] = acceptance
+                    (Path(run["run_dir"]) / "run_meta.json").write_text(json.dumps(post_meta, indent=2) + "\n")
                     meta.update(post_meta)
+                    if acceptance["status"] != ACCEPTED:
+                        # No retry: re-running the same case cannot fix a failed acceptance check. Outputs
+                        # are kept for review; the run never enters the M5 cache or becomes queryable.
+                        reasons = acceptance["failed_checks"] + [f"{c} (unavailable)" for c in acceptance["unavailable_checks"]]
+                        meta.update({"failure_reason": "FAILED_ACCEPTANCE: " + ", ".join(reasons),
+                                     "output_classification": "FAILED_ACCEPTANCE"})
+                        self._mark_run(run["run_id"], "failed", meta=meta, error=meta["failure_reason"],
+                                       finished_at=registry.utc_now())
+                        jobs.log_event(self.conn, job_id, f"run {run['run_id']} FAILED_ACCEPTANCE: {', '.join(reasons)}")
+                        self._after_dflowfm_run(row, data_dir)
+                        return
+                    register_run(data_dir, row["site_id"], run["run_id"], scenario["params"], post_meta)
                     self._mark_run(run["run_id"], "postprocessed", meta=meta, finished_at=registry.utc_now())
                 except Exception as exc:
                     self._retry_or_fail(row, run, f"post-processing/cache load failed: {exc}")
@@ -542,8 +563,17 @@ class Worker:
 
         payload = jobs.payload(jobs.get_job(self.conn, job_id))
         if payload.get("dflowfm_campaign"):
-            from backend.campaign import write_dflowfm_status
-            write_dflowfm_status(self._campaign_data_dir(row), row["site_id"], self.conn, job_id)
+            self._after_dflowfm_run(row, self._campaign_data_dir(row))
+
+    def _after_dflowfm_run(self, row: sqlite3.Row, data_dir: Path) -> None:
+        """Campaign status + the site's scenario-library index (Feature 13)."""
+        from backend.campaign import write_dflowfm_status
+        write_dflowfm_status(data_dir, row["site_id"], self.conn, row["job_id"])
+        try:
+            from backend.m0_api.run_registration import write_run_index
+            write_run_index(data_dir, row["site_id"])
+        except Exception as exc:  # the index is derived; never fail a run over it
+            log.warning("run index for %s not written: %s", row["site_id"], exc)
 
     def _retry_or_fail(self, row: sqlite3.Row, run: sqlite3.Row, message: str, details: dict | None = None) -> None:
         """Persist one retry before making a run/job terminally failed."""

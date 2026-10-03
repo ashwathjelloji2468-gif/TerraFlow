@@ -48,7 +48,8 @@ def test_direct_delft3d_query_flags_dem_pit_and_steep_reach(data_dir):
         ds.write(dem, 1)
 
     (run_dir / "run_meta.json").write_text(json.dumps(
-        {"run_id": run_id, "scenario_id": scenario_id, "thresholds": {"extent_m": 0.3}}))
+        {"run_id": run_id, "scenario_id": scenario_id, "thresholds": {"extent_m": 0.3},
+         "acceptance": {"status": "ACCEPTED"}, "run_class": "accepted"}))  # synthetic accepted-run fixture
     with registry.connect() as conn:
         conn.execute("INSERT INTO scenarios VALUES (?,?,?,?,?)",
                      (scenario_id, "teesta", "design", json.dumps({}), registry.utc_now()))
@@ -87,7 +88,8 @@ def test_direct_solver_bounds_latlng_is_lat_first(data_dir):
             ds.write(np.full((2, 2), 1.0, dtype="float32"), 1)
 
     (run_dir / "run_meta.json").write_text(json.dumps(
-        {"run_id": run_id, "scenario_id": scenario_id, "thresholds": {"extent_m": 0.3}}))
+        {"run_id": run_id, "scenario_id": scenario_id, "thresholds": {"extent_m": 0.3},
+         "acceptance": {"status": "ACCEPTED"}, "run_class": "accepted"}))  # synthetic accepted-run fixture
     with registry.connect() as conn:
         conn.execute("INSERT INTO scenarios VALUES (?,?,?,?,?)",
                      (scenario_id, "teesta", "design", json.dumps({}), registry.utc_now()))
@@ -120,7 +122,8 @@ def test_direct_sph_query_skips_dem_diagnostics(data_dir):
         with rasterio.open(summary / name, "w", **profile) as ds:
             ds.write(np.array([[1.0, 0.5], [0.4, 0.0]], dtype="float32"), 1)
     (run_dir / "run_meta.json").write_text(json.dumps(
-        {"run_id": run_id, "scenario_id": scenario_id, "thresholds": {"extent_m": 0.3}}))
+        {"run_id": run_id, "scenario_id": scenario_id, "thresholds": {"extent_m": 0.3},
+         "acceptance": {"status": "ACCEPTED"}, "run_class": "accepted"}))  # synthetic accepted-run fixture
     with registry.connect() as conn:
         conn.execute("INSERT INTO scenarios VALUES (?,?,?,?,?)",
                      (scenario_id, "teesta", "design", json.dumps({}), registry.utc_now()))

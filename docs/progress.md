@@ -3142,3 +3142,49 @@ so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passe
   check:shell, build, test:offline, test:scenarios, test:site-config, test:dashboard all pass.
 - Remaining real-world blockers: no observed flood extent, no real-site LOOCV/emulator, no accepted
   SPH/D-Flow pair, Teesta production inputs placeholder, no EE credentials for the live smoke test.
+
+## 2026-10-03 — Feature 13: Teesta production readiness (gate, acceptance, isolated campaign, registration)
+- Scope: a safe, reproducible path approved inputs -> accepted D-Flow FM run -> registered/queryable run.
+  Teesta is NOT made production-ready: it stays BLOCKED. No input, run_meta or solver output invented;
+  no equation or solver parameter changed.
+- Production gate (`backend/m3_dflowfm/production_gate.py`): every required input READY / PLACEHOLDER /
+  BLOCKED / CONTROLLED_PASS from the site config, terrain products and `docs/real_input_checklist.json`.
+  Verdict READY only when every blocking item is READY. Placeholders are blocking (never warnings) in
+  production mode. `scripts/dflowfm_preflight.py --production` adds the gate and blocks a placeholder base flow.
+  Teesta today: BLOCKED (46 placeholder, 21 blocked items; null base flow, null Teesta III trigger, placeholder
+  dams/POIs/domains, checklist production_gate BLOCKED, production_run_budget UNAVAILABLE).
+- Acceptance (`backend/m3_dflowfm/acceptance.py`): separate PASS/FAIL/UNAVAILABLE checks — solver_success,
+  postprocess_success, required_outputs, run_identity, terrain_compatibility, forcing_provenance, hydraulic_path
+  (outlet wet in the solver map; mesh bottleneck as diagnostic), poi_wetting (the unchanged smoke gate: all POIs
+  wet after spin-up), mass_source (reported, UNAVAILABLE: no approved tolerance). ACCEPTED only if all required
+  checks PASS; missing evidence is UNAVAILABLE -> FAILED_ACCEPTANCE.
+- Campaign (`backend/campaign.py`, `backend/m0_api/worker.py`): `--production` refuses unless the gate is READY
+  (campaign_status `BLOCKED` with the blocking list, nothing queued). Queued/running/postprocessed and
+  FAILED_ACCEPTANCE runs are preserved, never rebuilt or overwritten. Each run records inputs, input fingerprint
+  (params + site-config sha256 + design fingerprint), site/scenario/run IDs, campaign mode, code version,
+  generated_at/completed_at. The worker runs acceptance after post-processing; only ACCEPTED runs enter the M5
+  cache and become `postprocessed`; others are `failed` with `acceptance.status = FAILED_ACCEPTANCE` (no retry,
+  outputs kept). `campaign_status.json` summary: QUEUED/RUNNING/SUCCEEDED/FAILED/FAILED_ACCEPTANCE/BLOCKED.
+- Registration (`backend/m0_api/run_registration.py`): `register_existing_run` imports an on-disk run only after
+  identity/outputs/acceptance checks (refuses otherwise); `--pilot` registers a run whose integrity checks pass
+  as a PILOT run with its acceptance result recorded as-is and the `pilot_run_not_production_accepted` caveat,
+  never into the M5 cache. Original metadata kept as `run_meta.original.json`; result in `acceptance.json`.
+  `data/<site>/runs/index.json` is the scenario-library index. `/flood/query` now serves a D-Flow run only when
+  ACCEPTED or registered PILOT; a legacy hand-registered row stays `real_run_not_found` until registered.
+- API/UI: new additive `GET /sites/{site_id}/readiness` (`contracts/schemas/site_readiness.schema.json` + example)
+  with per-input and per-run status; compact "Production readiness" dashboard card. No other contract change
+  (registry `runs.status` unchanged: FAILED_ACCEPTANCE is recorded in run metadata).
+- Tests: `tests/m3_dflowfm/test_production_gate.py` (9), `test_acceptance.py` (8), `acceptance_fixtures.py`
+  (synthetic run dirs), `tests/test_campaign_isolation.py` (3), `tests/m0_api/test_run_registration.py` (10),
+  worker FAILED_ACCEPTANCE case in `tests/test_campaign_dflowfm.py`, one readiness check in test:dashboard.
+  Existing direct-run fixtures marked as synthetic ACCEPTED runs. Backend 1316 passed / 24 skipped; frontend
+  check:shell, build, test:offline, test:scenarios, test:site-config, test:dashboard all pass.
+- Remaining real blockers: sourced base flow; dam identity/type/geometry; storage curves and Teesta III initial
+  level; Teesta III trigger + cascade contract decision; approved DEM/datum and far-field domain; verified POIs;
+  production boundary conditions; approved run budget. Generated Teesta mesh still leaves POIs dry (not re-run).
+- Team WSL procedure (real kernel only):
+  `python scripts/dflowfm_preflight.py teesta --production --kernel $SIH26_DFLOWFM_KERNEL` (expect BLOCKED today);
+  `python -m backend.m0_api.run_registration register teesta teesta_2023_mvp__delft3d --pilot --spinup-s 0`
+  (only registers if its integrity checks pass; records its real acceptance); once the gate is READY:
+  `python -m backend.campaign teesta --production` then `python -m backend.m0_api.worker` (detached), then
+  `python -m backend.m0_api.run_registration index teesta` and `GET /api/v1/sites/teesta/readiness`.
