@@ -34,6 +34,7 @@ def test_committed_teesta_register_is_valid_and_unapproved():
     assert ir.validate("teesta") == []
     reg = ir.load_register("teesta")
     assert reg["entries"] and all(ir.entry_status(e) == ir.CANDIDATE for e in reg["entries"])  # nothing self-approved
+    assert all(ir.decision_of(e)["state"] == "pending" and ir.decision_of(e)["reviewer"] is None for e in reg["entries"])
 
 
 @pytest.mark.parametrize("mutate,expected", [
@@ -42,7 +43,14 @@ def test_committed_teesta_register_is_valid_and_unapproved():
     (lambda d: d["entries"][0].update(unit="ft"), "unit"),
     (lambda d: d["entries"][0].update(target="dams[1].breach_inputs.nonexistent"), "not a sourced value"),
     (lambda d: d["entries"][0].update(basis="guess"), "basis"),
-    (lambda d: d["entries"][0].update(approval={"approved_by": "x", "approved_at": None}), "approval needs both"),
+    (lambda d: d["entries"][0].update(decision={"state": "approved", "reviewer": "x", "decided_at": None, "rationale": "r"}),
+     "needs reviewer, decided_at and rationale"),
+    (lambda d: d["entries"][0].update(decision={"state": "rejected", "reviewer": "x", "decided_at": "2026-10-03", "rationale": None}),
+     "needs reviewer, decided_at and rationale"),
+    (lambda d: d["entries"][0].update(decision={"state": "maybe"}), "decision.state"),
+    (lambda d: d["entries"][0].update(decision={"state": "pending", "reviewer": "x", "decided_at": None}),
+     "pending decision must not carry"),
+    (lambda d: d["entries"][0].update(approval={"approved_by": "x", "approved_at": "2026-10-03"}), "both `decision`"),
 ])
 def test_invalid_registers_are_refused(tmp_path, mutate, expected):
     sites, reg = _copy(tmp_path)
@@ -63,7 +71,8 @@ def test_candidates_are_never_applied(tmp_path):
 
 def test_approved_entry_is_applied_with_citation_and_comments_kept(tmp_path):
     sites, reg = _copy(tmp_path)
-    _edit_register(reg, lambda d: d["entries"][0].update(approval={"approved_by": "Test Reviewer", "approved_at": "2026-10-03"}))
+    _edit_register(reg, lambda d: d["entries"][0].update(decision={
+        "state": "approved", "reviewer": "Test Reviewer", "decided_at": "2026-10-03", "rationale": "matches src_043"}))
     dry = ir.apply("teesta", sites_dir=sites, register_dir=reg)
     assert dry["applied"] == ["dams[1].breach_inputs.dam_height"] and dry["written"] is False
     out = ir.apply("teesta", write=True, sites_dir=sites, register_dir=reg)
@@ -102,3 +111,45 @@ def test_teesta_config_itself_unchanged_by_feature14():
     cfg = yaml.safe_load((ROOT / "sites/teesta.yaml").read_text())
     assert cfg["dams"][1]["breach_inputs"]["dam_height"]["status"] == "placeholder"
     assert cfg["domains"]["far_field"]["inflow"]["base_flow"]["value"] is None
+
+
+def _approve(e, who="Test Reviewer"):
+    e["decision"] = {"state": "approved", "reviewer": who, "decided_at": "2026-10-03", "rationale": "test"}
+
+
+def test_rejected_entry_is_recorded_never_applied(tmp_path):
+    sites, reg = _copy(tmp_path)
+
+    def mutate(d):
+        d["entries"][2]["decision"] = {"state": "rejected", "reviewer": "Test Reviewer", "decided_at": "2026-10-03",
+                                       "rationale": "drained volume is not volume above invert"}
+    _edit_register(reg, mutate)
+    assert ir.validate("teesta", sites_dir=sites, register_dir=reg) == []
+    before = (sites / "teesta.yaml").read_text()
+    out = ir.apply("teesta", write=True, sites_dir=sites, register_dir=reg)
+    assert out["applied"] == [] and (sites / "teesta.yaml").read_text() == before
+    assert {"target": "dams[0].breach_inputs.water_volume_above_invert", "reason": "rejected by reviewer"} in out["skipped"]
+    rep = ir.report("teesta", sites_dir=sites, register_dir=reg)
+    row = next(r for r in rep["rows"] if r["key"] == "dams[0].breach_inputs.water_volume_above_invert")
+    assert row["resolution"] == ir.REJECTED and rep["counts"][ir.REJECTED] == 1
+    md = ir.report_markdown(rep)
+    assert "REJECTED 1" in md and "drained volume is not volume above invert" in md
+
+
+def test_legacy_feature14_approval_block_still_read(tmp_path):
+    sites, reg = _copy(tmp_path)
+
+    def mutate(d):
+        e = d["entries"][0]
+        del e["decision"]
+        e["approval"] = {"approved_by": "Legacy Reviewer", "approved_at": "2026-10-03"}
+    _edit_register(reg, mutate)
+    assert ir.validate("teesta", sites_dir=sites, register_dir=reg) == []
+    assert ir.apply("teesta", sites_dir=sites, register_dir=reg)["applied"] == ["dams[1].breach_inputs.dam_height"]
+
+
+def test_invalid_decision_is_never_treated_as_approved():
+    e = {"decision": {"state": "approved", "reviewer": "x", "decided_at": None, "rationale": None}}
+    assert ir.entry_status(e) == ir.CANDIDATE
+    e = {"decision": {"state": "rejected", "reviewer": None, "decided_at": None, "rationale": None}}
+    assert ir.entry_status(e) == ir.CANDIDATE
