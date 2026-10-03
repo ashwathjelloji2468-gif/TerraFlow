@@ -95,7 +95,7 @@ def _install_fake_generator(monkeypatch, over_budget_scenarios: set[str] = froze
     fake.OverVramBudget = _FakeOverVramBudget
     fake.InflowUnavailable = _FakeInflowUnavailable
 
-    def build_nearfield_case(site_id, scenario_id, params, data_dir=None, sites_dir=None):
+    def build_nearfield_case(site_id, scenario_id, params, data_dir=None, sites_dir=None, production=False):
         if scenario_id in over_budget_scenarios:
             raise _FakeOverVramBudget(f"{scenario_id}: predicted VRAM exceeds budget")
         spec = object()

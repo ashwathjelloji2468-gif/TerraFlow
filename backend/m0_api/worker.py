@@ -57,6 +57,20 @@ class WorkerAlreadyRunning(RuntimeError):
     """Another worker holds `data/worker.lock`."""
 
 
+def _case_spinup_s(case_dir: str | Path) -> tuple[float, str]:
+    """Spin-up the case was actually built with (`case_meta.json` `spinup_s`, Feature 17 A5); the
+    generator constant only for a legacy case without one, and the source is recorded either way."""
+    path = Path(case_dir) / "case_meta.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")).get("spinup_s")
+    except (OSError, ValueError):
+        value = None
+    if value is not None:
+        return float(value), "case_meta.json"
+    from backend.m3_dflowfm.generator import SPINUP_S
+    return float(SPINUP_S), "generator.SPINUP_S (case_meta.json has no spinup_s)"
+
+
 def _env_float(name: str, default: float) -> float:
     return float(os.environ.get(name, default))
 
@@ -461,9 +475,10 @@ class Worker:
                     scenario_path = Path(run["run_dir"]) / "scenario.json"
                     scenario = json.loads(scenario_path.read_text())
                     grid_path = terrain / "grid.json"
+                    spinup_s, spinup_source = _case_spinup_s(case_dir)
                     post_meta = postprocess_dflowfm(case_dir, run["run_dir"], grid_path=grid_path,
                         domain_mask_path=terrain / "domain_mask.tif", run_id=run["run_id"],
-                        scenario_id=run["scenario_id"], hydrographs=meta.get("hydrographs", []), spinup_s=7200.0,
+                        scenario_id=run["scenario_id"], hydrographs=meta.get("hydrographs", []), spinup_s=spinup_s,
                         config=PostprocessConfig(delete_raw_map=False))
                     from backend.shared.site_config import load_site_config
                     config = load_site_config(row["site_id"], sites_dir=jobs.payload(jobs.get_job(self.conn, job_id)).get("sites_dir"))
@@ -475,6 +490,7 @@ class Worker:
                     if missing_facts and "placeholder_data" not in post_meta["caveats"]:
                         post_meta["caveats"].append("placeholder_data")
                     post_meta["wall_time_s"] = meta.get("wall_time_s")
+                    post_meta["spinup_s"], post_meta["spinup_source"] = spinup_s, spinup_source
                     # Feature 13: full per-run provenance, then acceptance BEFORE the M5 cache / registry.
                     post_meta["provenance"] = {**(scenario.get("provenance") or meta.get("provenance") or {}),
                                                "completed_at": registry.utc_now()}
@@ -483,7 +499,7 @@ class Worker:
                     from backend.m3_dflowfm.acceptance import ACCEPTED, evaluate_run
                     acceptance = evaluate_run(run["run_dir"], run_id=run["run_id"], scenario_id=run["scenario_id"],
                                               site_dir=data_dir / row["site_id"], case_dir=case_dir,
-                                              model_stem=meta.get("model_stem"), terrain_dir=terrain, spinup_s=7200.0)
+                                              model_stem=meta.get("model_stem"), terrain_dir=terrain, spinup_s=spinup_s)
                     post_meta["acceptance"] = acceptance
                     (Path(run["run_dir"]) / "run_meta.json").write_text(json.dumps(post_meta, indent=2) + "\n")
                     meta.update(post_meta)
@@ -584,6 +600,24 @@ class Worker:
             if payload.get("sph_campaign"):
                 from backend.m4_sph import launcher as sph_launcher
                 sph_launcher.archive_failed_output(run["run_dir"], int(meta.get("attempt", 0)))
+            elif payload.get("dflowfm_campaign") and meta.get("case_dir"):
+                # Feature 17 (E5): the relaunch deletes the previous .dia/_map/_his, so move this
+                # attempt's solver output (and a copy of its log) aside first. If archiving fails the
+                # run is NOT retried -- a retry must never destroy the failed attempt.
+                try:
+                    archived = m3_launcher.archive_failed_attempt(
+                        meta["case_dir"], run["run_dir"], int(meta.get("attempt", 0)),
+                        {"failure_reason": message, **(details or {})})
+                    meta.setdefault("archived_attempts", []).append(str(archived))
+                except Exception as exc:  # noqa: BLE001
+                    meta.update({"failure_reason": f"{message}; failed attempt could not be archived ({exc}); not retried",
+                                 "solver_status": "FAILED", "output_classification": "FAILED_SOLVER_ATTEMPT",
+                                 **(details or {})})
+                    self._mark_run(run["run_id"], "failed", meta=meta, error=meta["failure_reason"],
+                                   finished_at=registry.utc_now())
+                    if jobs.payload(jobs.get_job(self.conn, row["job_id"])).get("dflowfm_campaign"):
+                        self._after_dflowfm_run(row, self._campaign_data_dir(row))
+                    return
             meta["attempt"] = int(meta.get("attempt", 0)) + 1
             meta.pop("pid", None)
             meta.pop("started_epoch_s", None)

@@ -139,3 +139,75 @@ def is_alive(pid: int, case_dir: str | Path) -> bool:
         return Path(f"/proc/{pid}/cwd").resolve() == Path(case_dir).resolve()
     except (FileNotFoundError, ProcessLookupError, PermissionError):
         return False
+
+
+# --- Feature 17: completion evidence and failed-attempt archival -----------------------------------
+
+_INTERVAL_RE = {
+    "MapInterval": re.compile(r"^\s*MapInterval\s*=\s*([-+0-9.eE]+)", re.I | re.M),
+    "HisInterval": re.compile(r"^\s*HisInterval\s*=\s*([-+0-9.eE]+)", re.I | re.M),
+}
+_TIME_UNIT_S = {"second": 1.0, "minute": 60.0, "hour": 3600.0, "day": 86400.0}
+
+
+def mdu_time_settings(case_dir: str | Path, model_stem: str) -> dict:
+    """`TStop` / `MapInterval` / `HisInterval` exactly as written in the case's `.mdu` (the solver's own
+    input). Missing values are None; nothing is defaulted."""
+    mdu = Path(case_dir) / f"{model_stem}.mdu"
+    if not mdu.is_file():
+        return {"mdu": str(mdu), "present": False, "tstop_s": None, "map_interval_s": None, "his_interval_s": None}
+    text = mdu.read_text(errors="replace")
+    stop = _TSTOP_RE.search(text)
+    out = {"mdu": str(mdu), "present": True, "tstop_s": float(stop.group(1)) if stop else None}
+    for key, name in (("map_interval_s", "MapInterval"), ("his_interval_s", "HisInterval")):
+        match = _INTERVAL_RE[name].search(text)
+        out[key] = float(match.group(1)) if match else None
+    return out
+
+
+def final_output_time_s(nc_path: str | Path) -> float | None:
+    """Last time record of a D-Flow FM `_map.nc` / `_his.nc` in model seconds (undecoded, using the
+    file's own `units`; a file without units is read as seconds). None when unreadable or empty."""
+    import xarray as xr
+
+    try:
+        with xr.open_dataset(nc_path, decode_times=False) as ds:
+            if "time" not in ds.variables or ds["time"].size == 0:
+                return None
+            values = ds["time"].values.astype(float)
+            units = str(ds["time"].attrs.get("units", "seconds")).strip().lower()
+    except Exception:  # noqa: BLE001 - unreadable output is "no evidence", never a pass
+        return None
+    scale = next((s for word, s in _TIME_UNIT_S.items() if units.startswith(word)), None)
+    if scale is None or values.size == 0:
+        return None
+    return float(values[-1]) * scale
+
+
+def archive_failed_attempt(case_dir: str | Path, run_dir: str | Path, attempt: int, details: dict | None = None) -> Path:
+    """Move a failed D-Flow FM attempt's solver output out of the way before a retry relaunches.
+
+    `case/output/` (the `.dia`, `_map.nc`, `_his.nc`, resource usage) is MOVED intact to
+    `runs/<run_id>/attempts/aNN/failed_output/`; the run log is COPIED there (the live log keeps
+    appending); `attempt_meta.json` records why the attempt failed. An existing archive for the same
+    attempt is never overwritten (FileExistsError)."""
+    import json
+    import shutil
+
+    case_dir, run_dir = Path(case_dir), Path(run_dir)
+    target = run_dir / "attempts" / f"a{int(attempt):02d}"
+    if target.exists():
+        raise FileExistsError(target)
+    target.mkdir(parents=True)
+    output = case_dir / "output"
+    moved = None
+    if output.is_dir():
+        output.rename(target / "failed_output")
+        moved = str(target / "failed_output")
+    log = runner.log_path(run_dir)
+    if Path(log).is_file():
+        shutil.copy2(log, target / Path(log).name)
+    (target / "attempt_meta.json").write_text(json.dumps({
+        "attempt": int(attempt), "case_dir": str(case_dir), "archived_output": moved,
+        "details": details or {}}, indent=2, default=str) + "\n", encoding="utf-8")
+    return target

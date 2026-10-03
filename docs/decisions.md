@@ -1345,3 +1345,17 @@ build a Delft3D near-field water surface from the paired near-field DEM and maxi
 - **F16-P1c:** `load_site_config` errors list location + message + type only, never the input value,
   so a mis-placed credential is not echoed into logs/job errors. The model's `extra="forbid"` on every
   sub-model is now guarded by a test.
+
+## 2026-10-03 — Feature 17: M3/M4 production execution decisions (DECIDED with user)
+- **E1:** routed-discharge `timeseries.csv` sha256 and caveats live in the existing free-form `provenance`
+  object (`timeseries_sha256`, `caveats`); `routed_discharge.schema.json` unchanged.
+- **E2:** the artifact lives at `runs/<m3_run_id>/routed_discharge/` (contract §4.4), not in the SPH run.
+- **E4:** `simulation_completed` is an additional REQUIRED M3 acceptance check (real completion evidence:
+  final output time vs. configured stop). No existing check weakened.
+- **E5:** failed M3 attempts are archived before retry; a retry never destroys the failed attempt.
+- **E6:** SPH campaigns never overwrite a valid run; production SPH needs the gate and production routing.
+- **E7:** reviewed routing sections live in `config/routing_sections/<site>.yaml`, outside the site-config
+  schema. The file's presence approves nothing; production also needs named approval, an approved method
+  and the checklist item READY.
+- **S2 — DEFERRED:** no production extraction method is approved. Depth × speed-magnitude integration stays
+  for controlled/pilot use only, with its upper-bound caveat. Production routing remains BLOCKED.

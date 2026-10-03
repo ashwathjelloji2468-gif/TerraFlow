@@ -141,6 +141,9 @@ def extract_mvp_section(run_dir: str | Path, terrain_dir: str | Path,
                     "time_window_source_s": [t0, t1], "m3_peak_station": "teesta_pilot__poi__chungthang",
                     "m3_chungthang_peak_depth_time_s": peak_time_s,
                     "section_id": SECTION_ID},
+        # Feature 17: MVP-only artifact (never production-valid); speed magnitude is treated as
+        # section-normal velocity, so Q is an upper bound where flow crosses the section obliquely.
+        caveats=["mvp_comparison_only", "speed_magnitude_upper_bound"],
     )
     (output_dir / "m4_inlet.json").write_text(json.dumps({
         "site_id": SITE_ID, "scenario_id": SCENARIO_ID, "source_m3_run_id": M3_RUN_ID,

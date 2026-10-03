@@ -236,7 +236,7 @@ def test_teesta_behaviour_unchanged(tmp_path):
     before = _snapshot(REPO / "sites" / "teesta.yaml", REPO / "config" / "input_resolution")
     rep = df.build("teesta", data_dir=tmp_path)
     assert rep["G_blocking"]["gate_verdict"] == "BLOCKED"
-    assert rep["F_input_resolution"]["counts"] == {"APPROVED": 0, "CANDIDATE": 3, "UNRESOLVED": 39}
+    assert rep["F_input_resolution"]["counts"] == {"APPROVED": 0, "CANDIDATE": 11, "REJECTED": 0, "UNRESOLVED": 31}  # after Feature 15
     assert rinit.init_register("teesta")["status"] == "exists"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", PlaceholderWarning)

@@ -47,6 +47,7 @@ def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_pa
         case_dir = Path(case_dir)
         (case_dir / "output").mkdir(parents=True)
         (case_dir / "model.mdu").write_text("tStop = 9000\n")
+        (case_dir / "case_meta.json").write_text(json.dumps({"spinup_s": 7200.0, "stop_s": 9000.0}))
         return case_dir, {"scenario_id": scenario_id, "sim_duration_s": stop_s}
     fake_generator.build_case = build_case
     monkeypatch.setitem(sys.modules, "backend.m3_dflowfm.generator", fake_generator)
@@ -68,6 +69,7 @@ def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_pa
     def fake_launch(case_dir, run_dir, *, model):
         attempts["count"] += 1
         output = Path(case_dir) / "output"
+        output.mkdir(parents=True, exist_ok=True)  # the real launch_case recreates output/ (Feature 17 archival)
         if attempts["count"] == 1:
             (output / "model.dia").write_text("** ERROR : fake first attempt\n")
         else:
@@ -99,6 +101,10 @@ def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_pa
     worker.tick()  # first launch
     worker.tick()  # first failure queues one retry
     assert conn.execute("SELECT status FROM runs WHERE run_id = ?", (cases[0].run_id,)).fetchone()[0] == "queued"
+    # Feature 17 (E5): the failed first attempt's .dia was archived intact before the retry.
+    archived = data_dir / "synth/runs" / cases[0].run_id / "attempts/a00"
+    assert (archived / "failed_output/model.dia").read_text().startswith("** ERROR")
+    assert json.loads((archived / "attempt_meta.json").read_text())["attempt"] == 0
     worker.tick()  # second launch
     worker.tick()  # success, post-process, acceptance, M5 cache
     if not accepted:  # Feature 13: FAILED_ACCEPTANCE -> failed, no retry, no cache, outputs kept
@@ -117,6 +123,8 @@ def test_synthetic_dflowfm_campaign_retries_then_postprocesses_and_caches(tmp_pa
         return
     row = conn.execute("SELECT status FROM runs WHERE run_id = ?", (cases[0].run_id,)).fetchone()
     assert row[0] == "postprocessed"
+    run_meta = json.loads((data_dir / "synth/runs" / cases[0].run_id / "run_meta.json").read_text())
+    assert run_meta["spinup_s"] == 7200.0 and run_meta["spinup_source"] == "case_meta.json"  # Feature 17 A5
     assert attempts["count"] == 2
     cache = json.loads((data_dir / "synth/emulator/delft3d/run_cache.json").read_text())
     assert cache["runs"][0]["params"] == design["scenarios"][0]["params"]

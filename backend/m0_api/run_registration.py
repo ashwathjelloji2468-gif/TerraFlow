@@ -30,7 +30,8 @@ from backend.m0_api import registry, run_metadata
 
 PILOT_CAVEAT = {"id": "pilot_run_not_production_accepted", "severity": "warning",
                 "text_key": "caveat_pilot_run_not_production_accepted"}
-INTEGRITY_CHECKS = ("solver_success", "postprocess_success", "required_outputs", "run_identity")
+# Feature 17: a pilot run must also have actually finished (simulation_completed, decision E4).
+INTEGRITY_CHECKS = ("solver_success", "simulation_completed", "postprocess_success", "required_outputs", "run_identity")
 
 
 class RegistrationRefused(ValueError):

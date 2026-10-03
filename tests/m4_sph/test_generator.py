@@ -97,8 +97,12 @@ def test_inlet_mass_flux_matches_hydrograph(synth_terrain_dir, synth_hydrograph_
 def test_m4_consumes_routed_m3_artifact(synth_terrain_dir, synth_hydrograph_params, synth_sites_dir, tmp_path):
     from backend.m3_dflowfm.routed_discharge import write_routed_discharge
 
+    data_dir = synth_terrain_dir.parent.parent
+    source = data_dir / "synth" / "runs" / "synth_s001__delft3d"
+    source.mkdir(parents=True)  # Feature 17: the source M3 run must exist and be ACCEPTED / PILOT
+    (source / "run_meta.json").write_text(json.dumps({"status": "postprocessed", "acceptance": {"status": "ACCEPTED"}}))
     _, sidecar = write_routed_discharge(
-        tmp_path / "runs" / "m3", site_id="synth", scenario_id="synth_s001",
+        source / "routed_discharge", site_id="synth", scenario_id="synth_s001",
         source_run_id="synth_s001__delft3d", t_s=[0, 600, 1200, 1800],
         q_m3s=[20, 80, 40, 10], routing_method="controlled_map_section_integration",
         section={"type": "LineString", "coordinates": [[0, 0], [10, 10]], "crs": "EPSG:32645"},
@@ -118,6 +122,8 @@ def test_m4_consumes_routed_m3_artifact(synth_terrain_dir, synth_hydrograph_para
     np.testing.assert_allclose(np.asarray([v.v_ms for v in zone.velocity_times]) * area, expected)
     assert meta["provenance"]["hydrograph_method"] == "m3_routed_discharge"
     assert meta["provenance"]["routed_discharge"]["source_m3_run_id"] == "synth_s001__delft3d"
+    artifact = meta["provenance"]["routed_discharge_artifact"]
+    assert artifact["source_run_class"] == "ACCEPTED" and len(artifact["timeseries_sha256"]) == 64
 
 
 def test_outlet_is_downstream_of_inlet_and_spans_domain_height(
