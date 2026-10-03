@@ -23,8 +23,8 @@ from pathlib import Path
 PASS, FAIL, UNAVAILABLE = "PASS", "FAIL", "UNAVAILABLE"
 ACCEPTED, FAILED_ACCEPTANCE = "ACCEPTED", "FAILED_ACCEPTANCE"
 
-REQUIRED_CHECKS = ("solver_success", "postprocess_success", "required_outputs", "run_identity",
-                   "terrain_compatibility", "forcing_provenance", "hydraulic_path", "poi_wetting")
+REQUIRED_CHECKS = ("solver_success", "simulation_completed", "postprocess_success", "required_outputs",
+                   "run_identity", "terrain_compatibility", "forcing_provenance", "hydraulic_path", "poi_wetting")
 OPTIONAL_CHECKS = ("mass_source",)
 REQUIRED_RUN_OUTPUTS = ("run_meta.json", "summary/max_depth.tif", "summary/max_velocity.tif",
                         "summary/arrival_time.tif", "timeseries.csv")
@@ -51,6 +51,55 @@ def check_solver(case_dir: Path | None, model_stem: str | None) -> dict:
     result = launcher.check_success(case_dir, model_stem)
     return _check(PASS if result["success"] else FAIL,
                   "M3 rule 1: no ** ERROR in .dia and _map.nc/_his.nc exist (exit code not consulted)", **result)
+
+
+def check_simulation_completed(case_dir: Path | None, model_stem: str | None) -> dict:
+    """Feature 17 (decision E4): the solver actually reached its configured stop time.
+
+    M3 rule 1 (no ``** ERROR`` + both result files) cannot tell a finished run from one that was
+    killed or crashed silently after writing partial `_map.nc`/`_his.nc`. Evidence used here:
+    the stop time the solver was given (`TStop` in the case's own `.mdu`; `case_meta.json`
+    `stop_s` only when the `.mdu` has none) against the last time record actually written to BOTH
+    output files. A file passes when its last record is within one of its own output intervals of
+    the stop time (D-Flow FM writes on that interval; no other tolerance is applied). A missing
+    stop time or unreadable output is UNAVAILABLE, never PASS."""
+    from . import launcher
+    if case_dir is None or model_stem is None or not Path(case_dir).is_dir():
+        return _check(UNAVAILABLE, "case directory / model stem not available")
+    case_dir = Path(case_dir)
+    mdu = launcher.mdu_time_settings(case_dir, model_stem)
+    case_meta = {}
+    meta_path = case_dir / "case_meta.json"
+    if meta_path.is_file():
+        try:
+            case_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except ValueError:
+            case_meta = {}
+    stop_s, stop_source = mdu["tstop_s"], "mdu TStop"
+    if stop_s is None and case_meta.get("stop_s") is not None:
+        stop_s, stop_source = float(case_meta["stop_s"]), "case_meta.json stop_s"
+    ev: dict = {"stop_s": stop_s, "stop_source": stop_source if stop_s is not None else None,
+                "case_meta_stop_s": case_meta.get("stop_s"), "mdu_tstop_s": mdu["tstop_s"]}
+    if stop_s is None:
+        return _check(UNAVAILABLE, "no configured stop time (.mdu TStop / case_meta stop_s)", **ev)
+    if mdu["tstop_s"] is not None and case_meta.get("stop_s") is not None \
+            and abs(float(case_meta["stop_s"]) - mdu["tstop_s"]) > 1e-6:
+        return _check(FAIL, "case_meta.json stop_s disagrees with the .mdu TStop the solver ran", **ev)
+    files = {}
+    for kind, interval_key, mdu_key in (("map", "map_interval_s", "map_interval_s"),
+                                        ("his", "history_interval_s", "his_interval_s")):
+        path = case_dir / "output" / f"{model_stem}_{kind}.nc"
+        interval = mdu[mdu_key] if mdu[mdu_key] is not None else case_meta.get(interval_key)
+        last = launcher.final_output_time_s(path) if path.is_file() else None
+        files[kind] = {"path": str(path), "final_time_s": last,
+                       "output_interval_s": float(interval) if interval is not None else 0.0}
+    ev["outputs"] = files
+    if any(f["final_time_s"] is None for f in files.values()):
+        return _check(UNAVAILABLE, "final simulation time unreadable from map/history output", **ev)
+    short = [k for k, f in files.items() if f["final_time_s"] < stop_s - f["output_interval_s"] - 1e-6]
+    if short:
+        return _check(FAIL, "solver output ends before the configured stop time (truncated run): " + ", ".join(short), **ev)
+    return _check(PASS, "map and history output reach the configured stop time", **ev)
 
 
 def check_postprocess(meta: dict | None) -> dict:
@@ -179,6 +228,7 @@ def evaluate_run(run_dir: str | Path, *, run_id: str, scenario_id: str, site_dir
     meta = _run_meta(run_dir)
     checks = {
         "solver_success": check_solver(case_dir, model_stem),
+        "simulation_completed": check_simulation_completed(case_dir, model_stem),
         "postprocess_success": check_postprocess(meta),
         "required_outputs": check_outputs(run_dir),
         "run_identity": check_identity(meta, run_id, scenario_id, model),

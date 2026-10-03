@@ -3212,3 +3212,52 @@ so no real Teesta impact. Tests: focused 122 passed / 1 skipped; full 1244 passe
   item to READY while the site stays BLOCKED; committed report == generated.
 - Blocked (needs people, not code): reviewer sign-off on the 3 candidates; sources for base flow, POIs, domains,
   event times, Teesta III trigger/storage/initial level, DEM/datum approval, run budget, cascade contract decision.
+
+## 2026-10-03 — Feature 17: production hydraulic execution and M3→M4 coupling
+- Starting state: `9969961` (Features 13–16 merged). Teesta production BLOCKED (input resolution APPROVED 0,
+  checklist `m3_to_m4_routed_section` BLOCKED, Teesta III trigger/base flow null). Scope approved after a
+  Phase 0 audit (gaps A1–A8; decisions E1, E2, E4–E7 approved, S2 deferred — see `docs/decisions.md`).
+- M3 execution truthfulness: new REQUIRED acceptance check `simulation_completed` (A1) — `.mdu` TStop
+  (`case_meta.stop_s` only as fallback; disagreement FAILs) vs. the last time record written to BOTH
+  `_map.nc` and `_his.nc`, within one output interval. A run with no `** ERROR` and both files but cut
+  short is FAILED_ACCEPTANCE; missing evidence is UNAVAILABLE. Pilot registration also requires it.
+  `run_meta.solver_version` now comes from the `.dia` Program/Version (null + warning if absent, A2);
+  GNU-time wall-clock regex fixed (A3); worker spin-up read from `case_meta.json` with its source
+  recorded (A5); failed D-Flow attempts are moved to `runs/<id>/attempts/aNN/` (output + log copy +
+  `attempt_meta.json`) before the single retry, and an unarchivable attempt is not retried (A6/E5);
+  rebuilding a non-preserved run first moves its old contents to `runs/<id>/archive/rebuild_NN/` (A7).
+- Routed discharge (E1/E2, no schema change): artifact now at the contract location
+  `runs/<m3_run_id>/routed_discharge/`; written atomically (staging dir validated, then swapped; siblings
+  kept; a failed write leaves the previous artifact intact); `provenance.timeseries_sha256` and
+  `provenance.caveats`. `validate_routed_discharge` checks schema, usable status (`blocked`/`failed`
+  rejected), sha256, header, finite/increasing/non-negative series, section geometry, EPSG CRS,
+  provenance (`source_map`), optional time-window coverage and source run. Source runs are classified by
+  `routed_source_class` — `run_meta.status` alone is never trusted (A4: FAILED_ACCEPTANCE runs keep
+  `postprocessed`). Extraction method unchanged (S2 deferred): depth × speed magnitude, labelled
+  `extraction_mode: controlled`, upper-bound caveat recorded, `artifact_schema_checked` only.
+- Routing sections (E7): `backend/m3_dflowfm/routing_section.py`, format in `config/routing_sections/README.md`.
+  Production routing READY only with a valid file entry AND named approval AND an approved method
+  (`APPROVED_PRODUCTION_METHODS` is empty) AND checklist `m3_to_m4_routed_section` READY. No site file was
+  created; controlled runs use a declared (unapproved, labelled) section or the Feature 6 derived one.
+- M4: `build_nearfield_case` validates the routed artifact fully (site CRS, configured `[t_start_s, t_end_s]`
+  window, source run ACCEPTED/PILOT; `production=True` → ACCEPTED source + `artifact_validated`), no
+  fallback on failure, and records `provenance.routed_discharge_artifact` (manifest path, manifest and
+  timeseries sha256, source class, consumed window). SPH campaign (E6): existing queued/running/completed/
+  postprocessed runs are `preserved` (no more unconditional DELETE/rewrite); failed ones archived before
+  rebuild; `--production` evaluates the gate with `model="sph"` plus production routing and queues nothing
+  when BLOCKED.
+- Tests: new `tests/m3_dflowfm/test_feature17_m3.py`, `test_feature17_routed.py`,
+  `tests/m4_sph/test_feature17_m4.py`, `tests/test_feature17_campaign.py` (48, synthetic only); existing
+  fixtures updated for the new safeguards (acceptance fixture writes a stop time; worker test asserts the
+  archived attempt; M4 routed test creates its source run; fake SPH generator accepts `production`).
+  Stale expectations left by the Feature 15/16 merge were updated in this commit (input-resolution counts
+  3/39 -> 11/31 with `REJECTED: 0`; `test_poi_evidence` now asserts the committed
+  `teesta.poi_candidates.yaml` is unchanged rather than absent). `test_committed_report_matches_generated`
+  is left as is: it depends on gitignored `data/` and only passes on the machine that generated the
+  report. `tests/m5_emulator/test_query.py` was not run in the 3 GB sandbox (OOM; M5 untouched).
+- Real solver smoke: D-Flow FM SKIPPED — environment unavailable; DualSPHysics SKIPPED — environment
+  unavailable; Teesta production BLOCKED — required production inputs unresolved. No production run,
+  routed-discharge or SPH result is claimed.
+- Remaining blockers (people, not code): approved routing section + extraction method (S2) + time window +
+  `artifact_validated` semantics; all Teesta input approvals; cascade trigger contract; run budget; SPH
+  inlet-exclusion defect. Feature 15/16 never appended progress entries (noted, not backfilled).

@@ -75,10 +75,13 @@ def test_ambiguous_no_match_and_dams_stay_unresolved(world):
 def test_missing_extract_is_unverifiable_and_writes_nothing(tmp_path, capsys):
     reg = tmp_path / "reg"
     reg.mkdir()
+    committed = ROOT / "config/input_resolution/teesta.poi_candidates.yaml"  # Feature 15 committed it
+    before = committed.read_bytes() if committed.exists() else None
     with pytest.raises(pe.ExtractUnavailable, match="UNVERIFIABLE"):
         pe.extract("teesta", data_dir=tmp_path / "nodata")
     assert pe.main(["teesta", "--data-dir", str(tmp_path / "nodata"), "--write-candidates"]) == 2
-    assert not list(reg.iterdir()) and not (ROOT / "config/input_resolution/teesta.poi_candidates.yaml").exists()
+    assert not list(reg.iterdir())
+    assert (committed.read_bytes() if committed.exists() else None) == before  # untouched, not "absent"
 
 
 def test_written_candidates_validate_report_and_never_apply_while_pending(world):

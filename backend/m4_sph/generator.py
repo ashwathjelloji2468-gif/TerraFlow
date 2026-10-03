@@ -503,6 +503,7 @@ def build_nearfield_case(
     data_dir: str | Path | None = None, sites_dir: str | Path | None = None,
     routed_discharge_path: str | Path | None = None,
     terrain_dir: str | Path | None = None,
+    production: bool = False,
 ) -> tuple[CaseSpec, dict]:
     """Build the near-field GenCase spec for `scenario_id` on `site_id`, from M1 terrain
     (`data/<site_id>/terrain/`) and an M2 hydrograph for `params`. Returns `(spec, case_meta)`.
@@ -510,6 +511,14 @@ def build_nearfield_case(
     `params` is a scenario's breach parameters (contract §4.3): `water_volume_m3`,
     `breach_width_m`, `failure_time_s`, plus whatever `hydrograph()` needs for the triggering dam.
     `sites_dir` overrides where `<site_id>.yaml` is loaded from (default `sites/`), for tests.
+
+    Feature 17: a `routed_discharge_path` is fully validated before use
+    (`routed_discharge.validate_routed_discharge`: schema, usable status, sha256, series, section CRS =
+    the site's UTM zone, coverage of the configured `[t_start_s, t_end_s]` window, and the source M3
+    run's existence and class -- ACCEPTED/PILOT, or ACCEPTED + `artifact_validated` when
+    `production=True`). Any failure raises `RoutedDischargeInvalid`; there is no fallback to a typed
+    or M2 discharge in the routed path. `case_meta.provenance.routed_discharge_artifact` records which
+    artifact (path + manifest/timeseries sha256) fed the case.
     """
     settings = settings or load_sph_settings()
     data_dir = Path(data_dir) if data_dir is not None else default_data_dir()  # $SIH26_DATA_DIR, else <repo>/data
@@ -525,10 +534,17 @@ def build_nearfield_case(
     nf = cfg.domains.near_field
     dam_id = nf.inflow.from_
     routed_record = None
+    routed_report = None
     if routed_discharge_path is not None:
-        from backend.m3_dflowfm.routed_discharge import read_routed_discharge
-        hydro_t_s, hydro_q_m3s, routed_record = read_routed_discharge(
+        from backend.m3_dflowfm import routed_discharge as rd
+        rd.check_scenario_id(scenario_id)
+        hydro_t_s, hydro_q_m3s, routed_record, routed_report = rd.validate_routed_discharge(
             routed_discharge_path, site_id=site_id, scenario_id=scenario_id,
+            expected_epsg=int(cfg.crs.utm_epsg.value),
+            allowed_statuses=rd.PRODUCTION_STATUSES if production else rd.USABLE_STATUSES,
+            window_s=(settings.t_start_s, settings.t_end_s),
+            runs_dir=data_dir / site_id / "runs",
+            source_run_statuses=("ACCEPTED",) if production else ("ACCEPTED", "PILOT"),
         )
         hydro_method = "m3_routed_discharge"
     elif dam_id == "far_field":
@@ -705,7 +721,10 @@ def build_nearfield_case(
         "placeholder_fields": cfg.placeholder_fields,
         "caveats": caveats,
         "provenance": {"method": "m4_sph.generator.build_nearfield_case", "hydrograph_method": hydro_method,
-                       **({"routed_discharge": routed_record} if routed_record is not None else {})},
+                       **({"routed_discharge": routed_record,
+                           "routed_discharge_artifact": {**routed_report, "consumed_window_s": [t_start_s, t_end_s]}}
+                          if routed_record is not None else {})},
+        "production": bool(production),
     }
     return spec, case_meta
 
