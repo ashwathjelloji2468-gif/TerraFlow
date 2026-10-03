@@ -143,11 +143,25 @@ def _solver_peak_ram_mb(case_dir: Path) -> float | None:
     return None if not match else int(match.group(1)) / 1024.0
 
 
+def _dia_solver_identity(dia: Path) -> dict:
+    """Feature 17 (A2): the solver identity the kernel itself wrote into this run's `.dia`
+    (`Program = ...` / `Version = ...`), instead of a hard-coded version string."""
+    text = dia.read_text(errors="replace") if dia.is_file() else ""
+    program = re.search(r"^\s*Program\s*=\s*(.+?)\s*(?:#|$)", text, re.M)
+    version = re.search(r"^\s*Version\s*=\s*(.+?)\s*(?:#|$)", text, re.M)
+    program_s = program.group(1) if program else None
+    version_s = version.group(1) if version else None
+    return {"source": str(dia), "dia_present": dia.is_file(), "program": program_s, "version": version_s,
+            "solver_version": f"{program_s} {version_s}" if program_s and version_s else (version_s or None)}
+
+
 def _solver_wall_seconds(case_dir: Path) -> float | None:
     usage = next((p for p in (case_dir / "output/resource_usage.txt", case_dir / "resource_usage.txt") if p.is_file()), None)
     if usage is None:
         return None
-    match = re.search(r"Elapsed \(wall clock\) time .*?:\s*([^\n]+)", usage.read_text(errors="replace"))
+    # GNU time: "Elapsed (wall clock) time (h:mm:ss or m:ss): 1:02.50" -- the label itself contains
+    # colons, so match it literally and take the single value token after it (Feature 17, A3).
+    match = re.search(r"Elapsed \(wall clock\) time(?: \([^)]*\))?:\s*(\S+)", usage.read_text(errors="replace"))
     if not match:
         return None
     parts = match.group(1).strip().split(":")
@@ -274,6 +288,7 @@ def postprocess_dflowfm(case_dir: str | Path, run_dir: str | Path, *,
                                      "" if arrival is None else f"{arrival:.3f}"])
 
     runtime_s, started_at, finished_at = _dia_runtime(dia_path)
+    solver_identity = _dia_solver_identity(dia_path)
     output_bytes = sum(p.stat().st_size for p in output_dir.rglob("*") if p.is_file())
     disk_files = {p.resolve() for root in (case_dir, run_dir) for p in root.rglob("*") if p.is_file()}
     disk_bytes = sum(p.stat().st_size for p in disk_files)
@@ -288,9 +303,12 @@ def postprocess_dflowfm(case_dir: str | Path, run_dir: str | Path, *,
         warnings.append("solver peak RAM unavailable; launcher resource capture was not present for this run")
     if runtime_s is None:
         warnings.append("FM runtime unavailable in diagnostic output")
+    if solver_identity["solver_version"] is None:
+        warnings.append("solver Program/Version not found in the .dia; solver_version left null (not assumed)")
     run_meta = {
         "contract_version": CONTRACT_VERSION, "run_id": run_id, "scenario_id": scenario_id,
-        "model": "delft3d", "status": "postprocessed", "solver_version": "D-Flow FM 1.2.184",
+        "model": "delft3d", "status": "postprocessed", "solver_version": solver_identity["solver_version"],
+        "solver_identity": solver_identity,
         "resolution_m": grid["cell_size_m"], "dp_m": None, "particle_count": None,
         "peak_vram_mb": None, "sim_duration_s": sim_duration_s,
         "wall_time_s": _solver_wall_seconds(case_dir) or _wall_seconds(started_at, finished_at),

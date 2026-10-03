@@ -21,7 +21,8 @@ PROFILE = {"driver": "GTiff", "height": 2, "width": 2, "count": 1, "dtype": "flo
 def make_run(data_dir: Path, site_id: str = "synth", scenario_id: str = "synth__s001", *,
              poi_dry: bool = False, dia_error: bool = False, outlet_dry: bool = False,
              terrain_mismatch: bool = False, missing_output: str | None = None,
-             identity_run_id: str | None = None, with_run_meta: bool = True) -> dict:
+             identity_run_id: str | None = None, with_run_meta: bool = True,
+             truncated: bool = False, with_stop_time: bool = True) -> dict:
     run_id = f"{scenario_id}__delft3d"
     site = data_dir / site_id
     run_dir, case = site / "runs" / run_id, site / "runs" / run_id / "case"
@@ -47,6 +48,12 @@ def make_run(data_dir: Path, site_id: str = "synth", scenario_id: str = "synth__
         (run_dir / "scenario.json").write_text(json.dumps({"scenario_id": scenario_id, "kind": "design",
                                                           "params": {"water_volume_m3": 1e6}}))
     (case / "model.mdu").write_text("# synthetic\n")
+    # Feature 17: completion evidence. Outputs end at t = 60 s; a truncated run was configured to stop
+    # at 600 s (killed early, no ** ERROR line) -- simulation_completed must FAIL it.
+    if with_stop_time:
+        (case / "case_meta.json").write_text(json.dumps({"stop_s": 600.0 if truncated else 60.0,
+                                                         "map_interval_s": 60.0, "history_interval_s": 60.0,
+                                                         "spinup_s": 0.0}))
     (case / "output" / "model.dia").write_text("** ERROR : synthetic failure\n" if dia_error else "** INFO : done\n")
     # Two 100 m faces; the breach source is at x=0, the outlet polyline on the right edge (x=200).
     (case / "inputs" / "forcing.ext").write_text("[SourceSink]\nxCoordinates = 10.0\nyCoordinates = 50.0\n")

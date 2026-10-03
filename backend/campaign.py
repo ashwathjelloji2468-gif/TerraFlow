@@ -206,6 +206,9 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
                       "campaign_mode": "production" if production else ("demo" if demo else "non_production"),
                       "generated_at": registry.utc_now(), **version_info()}
         try:
+            archived = _archive_for_rebuild(conn, run_id, run_dir)
+            if archived is not None:
+                provenance["archived_previous_run"] = str(archived)
             from backend.m2_breach.hydrograph import hydrograph, write_hydrograph
             dam_id = cfg.domains.far_field.inflow.from_
             hydro_path, _ = write_hydrograph(hydrograph(site_id, dam_id, params, sites_dir=sites_dir),
@@ -234,6 +237,32 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
     jobs.set_progress(conn, job_id, 0, len(run_ids), "runs")
     write_dflowfm_status(data_dir, site_id, conn, job_id)
     return job_id, results
+
+
+def _archive_for_rebuild(conn: sqlite3.Connection, run_id: str, run_dir: Path) -> Path | None:
+    """Feature 17 (A7, E5/E6): before a NON-preserved run is rebuilt in place, move whatever a previous
+    attempt left behind (a failed solver run's case/output, logs, run_meta, earlier attempts, routed
+    artifacts) to `runs/<run_id>/archive/rebuild_NN/`. Preserved runs never reach here. A run dir with
+    no solver evidence (e.g. a dry-run case only) is rebuilt as before; nothing is ever deleted."""
+    row = conn.execute("SELECT status FROM runs WHERE run_id=?", (run_id,)).fetchone()
+    if not run_dir.is_dir():
+        return None
+    evidence = (row is not None and row[0] == "failed") or any(
+        (run_dir / rel).exists() for rel in ("case/output", "run_meta.json", "raw", "attempts", "log.txt"))
+    if not evidence:
+        return None
+    archive_root = run_dir / "archive"
+    n = len([p for p in archive_root.iterdir() if p.name.startswith("rebuild_")]) if archive_root.is_dir() else 0
+    target = archive_root / f"rebuild_{n + 1:02d}"
+    target.mkdir(parents=True)
+    for child in sorted(run_dir.iterdir()):
+        if child.name != "archive":
+            child.rename(target / child.name)
+    (target / "archive_meta.json").write_text(json.dumps({
+        "run_id": run_id, "previous_registry_status": row[0] if row else None,
+        "archived_at": registry.utc_now(), "reason": "rebuild of a non-preserved run"}, indent=2) + "\n",
+        encoding="utf-8")
+    return target
 
 
 def _sha256(text: str) -> str:
@@ -281,34 +310,41 @@ def _write_blocked_status(data_dir: Path, site_id: str, gate: dict) -> None:
 
 
 def _routed_discharge_from_delft3d(cfg, scenario_id: str, data_dir: Path, sph_run_id: str,
-                                   section_width_m: float) -> Path:
-    """Feature 5 -> M4: the SPH inlet discharge from the scenario's own postprocessed
-    `<scenario_id>__delft3d` run, across a section normal to the centreline at the near-field
-    inflow point. Raises FileNotFoundError/ValueError (-> refused) when that run is unavailable."""
-    import geopandas as gpd
-    from pyproj import Transformer
+                                   section_width_m: float, *, production: bool = False,
+                                   sites_dir: str | Path | None = None) -> Path:
+    """Feature 5 -> M4: the SPH inlet discharge from the scenario's own `<scenario_id>__delft3d` run.
 
-    from backend.m3_dflowfm.section_discharge import normal_section, write_section_discharge
+    Feature 17: the source must be ACCEPTED (production) or ACCEPTED / registered PILOT (controlled)
+    -- `run_meta.status` alone is not trusted (a FAILED_ACCEPTANCE run keeps `postprocessed`).
+    Production additionally needs `routing_section.production_status` READY (approved section AND
+    approved method; BLOCKED while decision S2 is deferred). The artifact is written to the M3 run's
+    own `routed_discharge/` (contract §4.4). Raises FileNotFoundError/ValueError (-> refused)."""
+    from backend.m3_dflowfm import routing_section
+    from backend.m3_dflowfm.routed_discharge import check_scenario_id, routed_source_class
+    from backend.m3_dflowfm.section_discharge import write_section_discharge
 
     site_id = cfg.site.id
+    check_scenario_id(scenario_id)
     m3_run_id = f"{scenario_id}__delft3d"
     m3_dir = data_dir / site_id / "runs" / m3_run_id
     meta_path = m3_dir / "run_meta.json"
     if not meta_path.is_file():
         raise FileNotFoundError(f"{m3_run_id} has no run_meta.json (not postprocessed)")
-    if json.loads(meta_path.read_text()).get("status") != "postprocessed":
-        raise ValueError(f"{m3_run_id} is not postprocessed")
-    location = cfg.domains.near_field.inflow.location.value
-    if location is None:
-        raise ValueError("domains.near_field.inflow.location is null")
+    source_class = routed_source_class(json.loads(meta_path.read_text()))
+    allowed = ("ACCEPTED",) if production else ("ACCEPTED", "PILOT")
+    if source_class not in allowed:
+        raise ValueError(f"{m3_run_id} is {source_class}; a routed-discharge source must be {' or '.join(allowed)}")
     epsg = int(cfg.crs.utm_epsg.value)
-    x, y = Transformer.from_crs(4326, epsg, always_xy=True).transform(*location)
-    centreline = gpd.read_file(data_dir / site_id / "terrain" / "centreline.gpkg").to_crs(epsg=epsg)
-    line = max(centreline.geometry, key=lambda g: g.length)
-    section = normal_section(line, x, y, section_width_m)
+    if production:
+        status = routing_section.production_status(site_id, data_dir=data_dir, sites_dir=sites_dir)
+        if status["status"] != routing_section.READY:
+            raise ValueError("production routing BLOCKED: " + "; ".join(status["reasons"]))
+        raise ValueError("production routing READY but no approved production extraction method is implemented")
+    section, section_meta = routing_section.controlled_section(cfg, data_dir, section_width_m)
     _, sidecar = write_section_discharge(
-        m3_dir, data_dir / site_id / "runs" / sph_run_id / "routed", section, site_id=site_id,
-        scenario_id=scenario_id, source_run_id=m3_run_id, crs_epsg=epsg, section_id=f"{scenario_id}__nearfield_inflow")
+        m3_dir, None, section, site_id=site_id, scenario_id=scenario_id, source_run_id=m3_run_id,
+        crs_epsg=epsg, section_id=section_meta.get("section_id") or f"{scenario_id}__nearfield_inflow",
+        section_meta={**section_meta, "source_run_class": source_class, "consumer_run_id": sph_run_id})
     return sidecar
 
 
@@ -317,6 +353,7 @@ def run_sph_campaign(
     conn: sqlite3.Connection,
     data_dir: Path | None = None,
     sites_dir: str | Path | None = None,
+    production: bool = False,
 ) -> tuple[str | None, list[CampaignCaseResult]]:
     """Build and register every scenario in `site_id`'s `simulation.sph.scenarios`
     as a near-field SPH case, under one shared `campaign` job.
@@ -327,12 +364,30 @@ def run_sph_campaign(
     exceeds the VRAM budget (`generator.OverVramBudget`) or has no usable
     inflow yet (`generator.InflowUnavailable`), is reported as `"refused"`
     rather than silently dropped or guessed at.
+
+    Feature 17 (E6): an existing queued / running / completed / postprocessed SPH run (or one under
+    acceptance review) is `preserved` -- never rebuilt or overwritten; a failed one is archived under
+    `runs/<run_id>/archive/` before it is rebuilt. `production=True` refuses (`blocked`, no job) unless
+    the production gate for `model="sph"` is READY and, for `far_field` inflow, production routing is
+    READY (`m3_dflowfm.routing_section`).
     """
+    from backend.m3_dflowfm.routed_discharge import RoutedDischargeInvalid
     from backend.m4_sph import generator  # local import: keep this module importable without geopandas
 
     data_dir = Path(data_dir) if data_dir is not None else registry.data_dir()
     cfg = load_site_config(site_id, sites_dir=sites_dir)
     scenario_ids = cfg.simulation.sph.scenarios
+    if production:
+        from backend.m3_dflowfm import production_gate, routing_section
+        gate = production_gate.evaluate(site_id, data_dir=data_dir, sites_dir=sites_dir, model="sph")
+        reasons = [] if gate["verdict"] == production_gate.READY else \
+            ["production gate (sph) BLOCKED: " + ", ".join(gate["blocking"])]
+        if cfg.domains.near_field.inflow.from_ == "far_field":
+            routing = routing_section.production_status(site_id, data_dir=data_dir, sites_dir=sites_dir)
+            if routing["status"] != routing_section.READY:
+                reasons.append("production routing BLOCKED: " + "; ".join(routing["reasons"]))
+        if reasons:
+            return None, [CampaignCaseResult(site_id, None, "blocked", " | ".join(reasons))]
     if not scenario_ids:
         return None, []
 
@@ -349,6 +404,11 @@ def run_sph_campaign(
     results: list[CampaignCaseResult] = []
     for scenario_id in scenario_ids:
         run_id = f"{scenario_id}__sph"
+        preserved = _preserved_reason(conn, run_id, dry_run=False)
+        if preserved:
+            results.append(CampaignCaseResult(scenario_id, run_id, "preserved", preserved))
+            jobs.log_event(conn, job_id, f"preserved {run_id}: {preserved}")
+            continue
         params = _scenario_params(design, scenario_id) if design is not None else None
         if params is None:
             reason = (f"no 'design/scenario_design.json' for site '{site_id}'" if design is None
@@ -361,14 +421,16 @@ def run_sph_campaign(
         if cfg.domains.near_field.inflow.from_ == "far_field":
             try:
                 routed_kwargs["routed_discharge_path"] = _routed_discharge_from_delft3d(
-                    cfg, scenario_id, data_dir, run_id, sph_settings.routed_section_width_m)
+                    cfg, scenario_id, data_dir, run_id, sph_settings.routed_section_width_m,
+                    production=production, sites_dir=sites_dir)
             except (FileNotFoundError, ValueError) as e:
                 routed_reason = f"no routed Delft3D inflow: {e}"
         try:
             spec, case_meta = generator.build_nearfield_case(
-                site_id, scenario_id, params, data_dir=data_dir, sites_dir=sites_dir, **routed_kwargs,
+                site_id, scenario_id, params, data_dir=data_dir, sites_dir=sites_dir, production=production,
+                **routed_kwargs,
             )
-        except (generator.OverVramBudget, generator.InflowUnavailable) as e:
+        except (generator.OverVramBudget, generator.InflowUnavailable, RoutedDischargeInvalid) as e:
             reason = f"{e} ({routed_reason})" if routed_reason else str(e)
             results.append(CampaignCaseResult(scenario_id, run_id, "refused", reason))
             jobs.log_event(conn, job_id, f"refused {run_id}: {reason}")
@@ -376,11 +438,14 @@ def run_sph_campaign(
 
         run_directory = data_dir / site_id / "runs" / run_id
         terrain_dir = data_dir / site_id / "terrain"
+        archived = _archive_for_rebuild(conn, run_id, run_directory)
+        case_meta["campaign_mode"] = "production" if production else "non_production"
+        if archived is not None:
+            case_meta["archived_previous_run"] = str(archived)
         generator.write_case(spec, case_meta, run_directory, terrain_dir)
 
-        conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
         conn.execute(
-            "INSERT INTO runs (run_id, scenario_id, model, status, run_dir, meta_json)"
+            "INSERT OR REPLACE INTO runs (run_id, scenario_id, model, status, run_dir, meta_json)"
             " VALUES (?, ?, 'sph', 'queued', ?, ?)",
             (run_id, scenario_id, str(run_directory), json.dumps({**case_meta, "case_dir": str(run_directory / "case")})),
         )
@@ -407,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", type=Path, help="override data root (also sets SIH26_DATA_DIR)")
     parser.add_argument("--sites-dir", type=Path, help="directory containing site YAML files")
     parser.add_argument("--production", action="store_true",
-                        help="Feature 13: refuse unless the production-readiness gate is READY")
+                        help="refuse unless the production-readiness gate is READY (Feature 13 dflowfm; Feature 17 sph)")
     args = parser.parse_args(argv)
 
     if args.data_dir is not None:
@@ -420,7 +485,8 @@ def main(argv: list[str] | None = None) -> int:
             job_id, results = run_dflowfm_campaign(args.site_id, conn, sites_dir=args.sites_dir, extra=args.extra,
                                                     dry_run=args.dry_run, demo=args.demo, production=args.production)
         elif args.model == "sph":
-            job_id, results = run_sph_campaign(args.site_id, conn)
+            job_id, results = run_sph_campaign(args.site_id, conn, sites_dir=args.sites_dir,
+                                               production=args.production)
         else:
             raise ValueError("ANUGA is not an M0 registry model; use dflowfm or sph")
     finally:

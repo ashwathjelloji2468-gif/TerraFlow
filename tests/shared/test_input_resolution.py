@@ -92,7 +92,7 @@ def test_approved_entry_is_applied_with_citation_and_comments_kept(tmp_path):
 def test_report_separates_candidate_unresolved_and_evidence_only():
     rep = ir.report("teesta")
     assert rep["gate_verdict"] == "BLOCKED"
-    assert rep["counts"][ir.APPROVED] == 0 and rep["counts"][ir.CANDIDATE] == 3
+    assert rep["counts"][ir.APPROVED] == 0 and rep["counts"][ir.CANDIDATE] == 11  # 3 (F14) + 8 POI candidates (F15)
     rows = {r["key"]: r for r in rep["rows"]}
     bf = rows["domains.far_field.inflow.base_flow"]
     assert bf["resolution"] == ir.UNRESOLVED and bf["proposed_value"] is None

@@ -100,18 +100,49 @@ def section_discharge(run_dir: str | Path, section, *, crs_epsg: int) -> dict:
                         "crs": f"EPSG:{crs_epsg}", "length_m": float(section.length)}}
 
 
-def write_section_discharge(run_dir: str | Path, output_dir: str | Path, section, *, site_id: str,
-                            scenario_id: str, source_run_id: str, crs_epsg: int, section_id: str) -> tuple[Path, Path]:
-    """Extract and write the canonical routed-discharge artifact (`routed_discharge.json`)."""
+def _case_epsg(run_dir: Path) -> int | None:
+    try:
+        meta = json.loads((_case_dir(Path(run_dir)) / "case_meta.json").read_text())
+    except (OSError, ValueError, FileNotFoundError):
+        return None
+    return int(meta["crs_epsg"]) if meta.get("crs_epsg") is not None else None
+
+
+def write_section_discharge(run_dir: str | Path, output_dir: str | Path | None, section, *, site_id: str,
+                            scenario_id: str, source_run_id: str, crs_epsg: int, section_id: str,
+                            section_meta: dict | None = None) -> tuple[Path, Path]:
+    """Extract and write the canonical routed-discharge artifact (`routed_discharge.json`).
+
+    `output_dir=None` writes to the M3 run's own `routed_discharge/` (contract §4.4, decision E2).
+    Feature 17: the section CRS must equal the case's `crs_epsg`; the method stays the controlled
+    depth x speed-magnitude integral (decision S2 deferred) and its upper-bound caveat is recorded in
+    `provenance.caveats`. The result is a CONTROLLED artifact (`artifact_schema_checked`), never a
+    production-validated one."""
+    from .routed_discharge import ARTIFACT_DIRNAME, check_run_id, check_scenario_id
+    from .routing_section import CONTROLLED_METHOD_CAVEATS, CONTROLLED_METHOD_ID
+
+    check_scenario_id(scenario_id)
+    check_run_id(source_run_id)
+    case_epsg = _case_epsg(Path(run_dir))
+    if case_epsg is not None and case_epsg != int(crs_epsg):
+        raise ValueError(f"section CRS EPSG:{crs_epsg} does not match the M3 case CRS EPSG:{case_epsg}")
+    target = Path(output_dir) if output_dir is not None else Path(run_dir) / ARTIFACT_DIRNAME
     result = section_discharge(run_dir, section, crs_epsg=crs_epsg)
     return write_routed_discharge(
-        output_dir, site_id=site_id, scenario_id=scenario_id, source_run_id=source_run_id,
+        target, site_id=site_id, scenario_id=scenario_id, source_run_id=source_run_id,
         t_s=result["t_s"], q_m3s=result["q_m3s"],
         routing_method="depth × speed-magnitude line integration across a D-Flow FM section",
         section={**result["section"], "id": section_id},
         provenance={"status": "REAL_M3_DERIVED", "source_map": result["map"], "source_run_id": source_run_id,
+                    "extraction_mode": "controlled", "extraction_method_id": CONTROLLED_METHOD_ID,
                     "depth_variable": "mesh2d_waterdepth", "speed_variable": "mesh2d_ucmag",
+                    "source_variables": ["mesh2d_waterdepth", "mesh2d_ucmag"],
+                    "integration_convention": "sum over map faces cut by the section of max(depth,0) x "
+                                              "max(speed,0) x cut length; face-centred values",
                     "velocity_vector_available": False, "normal_velocity_assumption": SPEED_CAVEAT,
                     "spinup_removed_s": result["spinup_s"], "faces_crossed": result["faces_crossed"],
-                    "max_section_depth_m": result["max_section_depth_m"], "time_reference": "seconds since t0"},
+                    "max_section_depth_m": result["max_section_depth_m"],
+                    "time_reference": "seconds since t0 (map time minus case_meta spinup_s; CLAUDE.md rule 6)",
+                    "case_crs_epsg": case_epsg, "section_meta": section_meta or {}},
+        caveats=list(CONTROLLED_METHOD_CAVEATS),
     )
