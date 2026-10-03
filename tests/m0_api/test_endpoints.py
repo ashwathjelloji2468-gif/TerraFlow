@@ -327,8 +327,10 @@ def test_real_registered_run_query_uses_rasters_and_renders_them(data_dir):
     for name, values in arrays.items():
         with rasterio.open(summary / name, "w", **profile) as ds:
             ds.write(values, 1)
+    # Synthetic fixture of an ACCEPTED run (Feature 13: only accepted runs are queryable).
     (run_dir / "run_meta.json").write_text(json.dumps({"run_id":run_id,"scenario_id":scenario_id,
-                                                       "thresholds":{"extent_m":0.3}}))
+                                                       "thresholds":{"extent_m":0.3},
+                                                       "acceptance":{"status":"ACCEPTED"}, "run_class":"accepted"}))
     with registry.connect() as conn:
         conn.execute("INSERT INTO scenarios VALUES (?,?,?,?,?)", (scenario_id, KNOWN_SITE, "design",
                      json.dumps({"breach_width_m":42.0}), registry.utc_now()))

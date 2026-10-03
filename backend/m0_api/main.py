@@ -270,6 +270,16 @@ def get_design(site_id: SiteIdPath) -> JSONResponse:
     return _validated_json("scenario_design.schema.json", design)
 
 
+@app.get(f"{API}/sites/{{site_id}}/readiness")
+def get_site_readiness(site_id: SiteIdPath) -> JSONResponse:
+    """Feature 13: production-readiness gate per input + acceptance state of every registered run.
+    Additive endpoint (contracts/schemas/site_readiness.schema.json). Never reports missing data as
+    READY; unknown sites are a 404 like every other site route."""
+    _require_known_site(site_id)
+    from backend.m0_api import run_registration
+    return _validated_json("site_readiness.schema.json", run_registration.site_readiness(site_id))
+
+
 @app.post(f"{API}/sites/{{site_id}}/whatif")
 def post_whatif(site_id: SiteIdPath, body: Annotated[dict, Body(...)]) -> JSONResponse:
     """Breach-level what-if: real M2 recomputation + real M2 hydrograph (no flood map, Feature 8)."""

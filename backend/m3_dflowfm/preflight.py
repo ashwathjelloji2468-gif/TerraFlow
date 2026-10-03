@@ -145,13 +145,16 @@ def check_site_config(site_id: str, data_dir: Path, sites_dir: Path | None):
                   "placeholder_fields": len(cfg.placeholder_fields)}), cfg
 
 
-def check_base_flow(cfg) -> Check:
+def check_base_flow(cfg, production: bool = False) -> Check:
     bf = cfg.domains.far_field.inflow.base_flow
     if bf is None or bf.value is None:
         ev = {} if bf is None else {"status": bf.status, "source": bf.source}
         return Check("base_flow", BLOCKED, "domains.far_field.inflow.base_flow is null; a sourced value or "
                      "an explicit team decision is required -- no default is supplied", ev)
     ev = {"value": bf.value, "unit": bf.unit, "status": bf.status, "source": bf.source}
+    if bf.status != "sourced" and production:  # Feature 13: never a warning for a production run
+        return Check("base_flow", BLOCKED, f"base_flow {bf.value} {bf.unit} is a placeholder "
+                     f"(source: {bf.source}); a production run needs a sourced value", ev)
     if bf.status != "sourced":
         return Check("base_flow", WARNING, f"base_flow {bf.value} {bf.unit} is a placeholder "
                      f"(source: {bf.source}); results will carry has_placeholders", ev)
@@ -216,7 +219,8 @@ def check_design(site_id: str, data_dir: Path) -> Check:
 
 
 def run_preflight(site_id: str, *, data_dir: str | Path | None = None, sites_dir: str | Path | None = None,
-                  kernel: str | Path | None = None, min_free_gb: float | None = None) -> dict:
+                  kernel: str | Path | None = None, min_free_gb: float | None = None,
+                  production: bool = False) -> dict:
     data_dir = Path(data_dir) if data_dir is not None else default_data_dir()
     sites_dir = Path(sites_dir) if sites_dir is not None else None
     checks = [check_platform(), check_kernel(kernel), check_time_binary(), *check_python_modules(),
@@ -224,13 +228,20 @@ def run_preflight(site_id: str, *, data_dir: str | Path | None = None, sites_dir
     site_check, cfg = check_site_config(site_id, data_dir, sites_dir)
     checks.append(site_check)
     if cfg is not None:
-        checks.append(check_base_flow(cfg))
+        checks.append(check_base_flow(cfg, production))
     checks += [check_terrain(site_id, data_dir), check_breach(site_id, data_dir, cfg),
                check_design(site_id, data_dir)]
+    gate = None
+    if production:  # Feature 13: the production-readiness gate is part of a production preflight
+        from backend.m3_dflowfm.production_gate import evaluate
+        gate = evaluate(site_id, data_dir=data_dir, sites_dir=sites_dir)
+        checks.append(Check("production_gate", PASS if gate["verdict"] == "READY" else BLOCKED,
+                            f"production gate {gate['verdict']}: {len(gate['blocking'])} blocking item(s)",
+                            {"blocking": gate["blocking"]}))
     statuses = {c.status for c in checks}
     overall = BLOCKED if BLOCKED in statuses else WARNING if WARNING in statuses else PASS
-    return {"site_id": site_id, "data_dir": str(data_dir), "overall": overall,
-            "checks": [asdict(c) for c in checks]}
+    return {"site_id": site_id, "data_dir": str(data_dir), "overall": overall, "production": production,
+            "checks": [asdict(c) for c in checks], **({"production_gate": gate} if gate else {})}
 
 
 def format_report(report: dict) -> str:

@@ -1,0 +1,74 @@
+{
+  "site_id": "teesta",
+  "model": "delft3d",
+  "evaluated_at": "2026-10-03T00:00:00Z",
+  "production_verdict": "BLOCKED",
+  "config_loaded": true,
+  "inputs": [
+    {
+      "key": "domains.far_field.inflow.base_flow",
+      "category": "site_config",
+      "status": "BLOCKED",
+      "blocking": true,
+      "source": "NOT SOURCED",
+      "detail": "value is null"
+    },
+    {
+      "key": "crs.utm_epsg",
+      "category": "site_config",
+      "status": "READY",
+      "blocking": true,
+      "source": "Derived from site bbox",
+      "detail": ""
+    },
+    {
+      "key": "m3_frozen_pilot_reproduction",
+      "category": "shared_gate",
+      "status": "CONTROLLED_PASS",
+      "blocking": false,
+      "source": "docs/m3_reproduction.md",
+      "detail": "CONTROLLED PASS"
+    }
+  ],
+  "blocking": [
+    "domains.far_field.inflow.base_flow"
+  ],
+  "counts": {
+    "READY": 1,
+    "PLACEHOLDER": 0,
+    "BLOCKED": 1,
+    "CONTROLLED_PASS": 1
+  },
+  "runs": [
+    {
+      "run_id": "teesta_2023_mvp__delft3d",
+      "scenario_id": "teesta_2023_mvp",
+      "model": "delft3d",
+      "status": "PILOT",
+      "registry_status": "postprocessed",
+      "acceptance_status": "FAILED_ACCEPTANCE",
+      "run_class": "pilot",
+      "queryable": true,
+      "failed_checks": [
+        "poi_wetting"
+      ],
+      "unavailable_checks": []
+    }
+  ],
+  "run_counts": {
+    "ACCEPTED": 0,
+    "PILOT": 1,
+    "FAILED_ACCEPTANCE": 0,
+    "FAILED": 0,
+    "QUEUED": 0,
+    "RUNNING": 0,
+    "NOT_EVALUATED": 0
+  },
+  "caveats": [
+    {
+      "id": "production_gate_blocked",
+      "severity": "warning",
+      "text_key": "caveat_production_gate_blocked"
+    }
+  ]
+}

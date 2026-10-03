@@ -24,7 +24,7 @@ CONTRACT_VERSION = "0.3.0"
 class CampaignCaseResult:
     scenario_id: str
     run_id: str
-    status: str  # queued | completed | postprocessed | failed | refused
+    status: str  # queued | completed | postprocessed | failed | refused | blocked | preserved
     reason: str | None = None
 
 
@@ -52,6 +52,7 @@ def write_dflowfm_status(data_dir: Path, site_id: str, conn: sqlite3.Connection,
     if active is None and not dry_run:
         active = next((r for r in runs if r["status"] == "queued"), None)
     failed = [r for r in runs if r["status"] == "failed"]
+    states = {r["run_id"]: run_state(r["status"], json.loads(r["meta_json"] or "{}"), dry_run) for r in runs}
     durations = [json.loads(r["meta_json"] or "{}").get("wall_time_s") for r in done]
     durations = [float(v) for v in durations if v is not None]
     eta = (0 if dry_run else
@@ -60,11 +61,14 @@ def write_dflowfm_status(data_dir: Path, site_id: str, conn: sqlite3.Connection,
             "done": len(done), "total": len(runs), "running": active["run_id"] if active else None,
             "failed": [r["run_id"] for r in failed], "eta_s": eta,
             "demo_mode": bool(jobs.payload(row).get("demo_mode")),
+            "mode": jobs.payload(row).get("campaign_mode"),
+            "summary": {s: sum(1 for v in states.values() if v == s) for s in CAMPAIGN_STATES},
+            "failed_acceptance": [rid for rid, v in states.items() if v == "FAILED_ACCEPTANCE"],
               "runs": [{"run_id": r["run_id"], "scenario_id": r["scenario_id"],
                       "status": ("done" if r["status"] == "postprocessed" or (dry_run and r["status"] == "completed") else
                                 "failed" if r["status"] == "failed" else
                                 "running" if r["status"] in {"queued", "running", "completed"} else r["status"]),
-                      "error": r["error"]} for r in runs]}
+                      "state": states[r["run_id"]], "error": r["error"]} for r in runs]}
     target = data_dir / site_id / "campaign_status.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_suffix(".json.tmp")
@@ -75,13 +79,28 @@ def write_dflowfm_status(data_dir: Path, site_id: str, conn: sqlite3.Connection,
 def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str | Path | None = None,
                          sites_dir: str | Path | None = None, *, extra: list[str] | None = None,
                          dry_run: bool = False, demo: bool = False,
-                         job_id: str | None = None) -> tuple[str | None, list[CampaignCaseResult]]:
-    """Build and register M5 design scenarios and explicitly selected extras."""
+                         job_id: str | None = None, production: bool = False,
+                         checklist_path: str | Path | None = None) -> tuple[str | None, list[CampaignCaseResult]]:
+    """Build and register M5 design scenarios and explicitly selected extras.
+
+    Feature 13: `production=True` refuses to build or queue anything unless the production-readiness
+    gate (`m3_dflowfm.production_gate`) is READY -- the campaign is then BLOCKED, with the blocking
+    inputs recorded in `campaign_status.json`. In every mode, a scenario whose run is already
+    queued/running/postprocessed (or FAILED_ACCEPTANCE, kept for review) is preserved, never rebuilt
+    or overwritten; each queued run carries its input fingerprint and code version."""
     from backend.m3_dflowfm import generator
     from backend.m5_emulator import scenario_design
     from dataclasses import replace
 
     data_dir = Path(data_dir) if data_dir is not None else registry.data_dir()
+    if production:
+        from backend.m3_dflowfm import production_gate
+        gate = production_gate.evaluate(site_id, data_dir=data_dir, sites_dir=sites_dir,
+                                        **({"checklist_path": checklist_path} if checklist_path else {}))
+        if gate["verdict"] != production_gate.READY:
+            _write_blocked_status(data_dir, site_id, gate)
+            return None, [CampaignCaseResult(site_id, "", "blocked",
+                                             "production gate BLOCKED: " + ", ".join(gate["blocking"]))]
     cfg = load_site_config(site_id, sites_dir=sites_dir)
     design = _load_design(data_dir, site_id)
     if design is not None and (design.get("site_id") != site_id or design.get("model") != "delft3d"):
@@ -131,8 +150,20 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
     unknown = selected - matched
     if unknown:
         raise ValueError(f"named extra scenario(s) not found in design: {', '.join(sorted(unknown))}")
+    # Feature 13 isolation: never rebuild/overwrite an active, successful or under-review run. Those
+    # scenarios are reported as `preserved` and stay with the job that created them.
+    preserved: list[CampaignCaseResult] = []
+    kept_entries = []
+    for entry in entries:
+        rid = f"{entry['scenario_id']}__delft3d"
+        reason = _preserved_reason(conn, rid, dry_run)
+        if reason:
+            preserved.append(CampaignCaseResult(entry["scenario_id"], rid, "preserved", reason))
+        else:
+            kept_entries.append(entry)
+    entries = kept_entries
     if not entries:
-        return None, []
+        return None, preserved
     campaign_payload = {"model": "delft3d", "dflowfm_campaign": True, "dry_run": dry_run,
                         "scenario_ids": [e["scenario_id"] for e in entries], "extra": sorted(selected),
                         "data_dir": str(data_dir.resolve()),
@@ -144,7 +175,7 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
         if existing is None or existing["site_id"] != site_id or existing["kind"] != "onboarding":
             raise ValueError("an attached campaign job must be an existing onboarding job for this site")
         jobs.update_payload(conn, job_id, **campaign_payload)
-    run_ids, results = [], []
+    run_ids, results = [], list(preserved)
     now = registry.utc_now()
     demo_stop_s = 9000.0
     if demo:
@@ -159,12 +190,21 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
             for entry in entries
         )
         demo_stop_s = math.ceil(max(demo_stop_s, required_end) / 30.0) * 30.0
+    from backend.shared.version import version_info
+    config_sha = _sha256(cfg.model_dump_json())
+    design_fp = (design.get("provenance") or {}).get("fingerprint")
     for entry in entries:
         sid, params = entry["scenario_id"], entry["params"]
         run_id = f"{sid}__delft3d"
         run_ids.append(run_id)
         run_dir = data_dir / site_id / "runs" / run_id
         case_dir = run_dir / "case"
+        provenance = {"site_id": site_id, "scenario_id": sid, "run_id": run_id, "inputs": params,
+                      "input_fingerprint": _sha256(json.dumps({"params": params, "site_config_sha256": config_sha,
+                                                               "design_fingerprint": design_fp}, sort_keys=True)),
+                      "site_config_sha256": config_sha, "design_fingerprint": design_fp,
+                      "campaign_mode": "production" if production else ("demo" if demo else "non_production"),
+                      "generated_at": registry.utc_now(), **version_info()}
         try:
             from backend.m2_breach.hydrograph import hydrograph, write_hydrograph
             dam_id = cfg.domains.far_field.inflow.from_
@@ -175,22 +215,69 @@ def run_dflowfm_campaign(site_id: str, conn: sqlite3.Connection, data_dir: str |
                 stop_s=demo_stop_s if demo else generator.DEFAULT_STOP_S, demo=demo)
             meta["hydrographs"] = [str(hydro_path.relative_to(data_dir / site_id))]
             run_dir.mkdir(parents=True, exist_ok=True)
-            (run_dir / "scenario.json").write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
+            (run_dir / "scenario.json").write_text(json.dumps({**entry, "provenance": provenance}, indent=2) + "\n",
+                                                   encoding="utf-8")
+            meta["provenance"] = provenance
             state, error = ("completed", None) if dry_run else ("queued", None)
             if dry_run:
                 meta["dry_run"] = True
         except Exception as exc:
-            state, error, meta = "failed", str(exc), {"params": params}
+            state, error, meta = "failed", str(exc), {"params": params, "provenance": provenance}
         with conn:
             conn.execute("INSERT OR REPLACE INTO scenarios (scenario_id, site_id, kind, params_json, created_at) VALUES (?, ?, ?, ?, ?)",
                 (sid, site_id, "demo" if demo else entry.get("kind", "design"), json.dumps(params), now))
             conn.execute("INSERT OR REPLACE INTO runs (run_id, scenario_id, model, status, run_dir, meta_json, error) VALUES (?, ?, 'delft3d', ?, ?, ?, ?)",
                 (run_id, sid, state, str(run_dir), json.dumps({**meta, "case_dir": str(case_dir), "attempt": 0}), error))
         results.append(CampaignCaseResult(sid, run_id, state, error))
-    jobs.update_payload(conn, job_id, run_ids=run_ids)
+    jobs.update_payload(conn, job_id, run_ids=run_ids, campaign_mode="production" if production else
+                        ("demo" if demo else "non_production"))
     jobs.set_progress(conn, job_id, 0, len(run_ids), "runs")
     write_dflowfm_status(data_dir, site_id, conn, job_id)
     return job_id, results
+
+
+def _sha256(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _preserved_reason(conn: sqlite3.Connection, run_id: str, dry_run: bool) -> str | None:
+    row = conn.execute("SELECT status, meta_json FROM runs WHERE run_id=?", (run_id,)).fetchone()
+    if row is None:
+        return None
+    status = row[0]
+    meta = json.loads(row[1] or "{}")
+    if status in ("queued", "running", "postprocessed") or (status == "completed" and not dry_run):
+        return f"existing run is {status}; not rebuilt"
+    if status == "failed" and (meta.get("acceptance") or {}).get("status") == "FAILED_ACCEPTANCE":
+        return "existing run FAILED_ACCEPTANCE; outputs kept for review, not overwritten"
+    return None
+
+
+#: Feature 13 campaign states (summary of the registry status + acceptance result).
+CAMPAIGN_STATES = ("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "FAILED_ACCEPTANCE", "BLOCKED")
+
+
+def run_state(status: str, meta: dict, dry_run: bool = False) -> str:
+    acceptance = (meta.get("acceptance") or {}).get("status")
+    if status == "failed":
+        return "FAILED_ACCEPTANCE" if acceptance == "FAILED_ACCEPTANCE" else "FAILED"
+    if status == "postprocessed" or (dry_run and status == "completed"):
+        return "SUCCEEDED"
+    if status in ("running", "completed"):
+        return "RUNNING"
+    return "QUEUED"
+
+
+def _write_blocked_status(data_dir: Path, site_id: str, gate: dict) -> None:
+    body = {"model": "delft3d", "updated_at": registry.utc_now(), "campaign_state": "BLOCKED",
+            "mode": "production", "production_gate": {"verdict": gate["verdict"], "blocking": gate["blocking"]},
+            "summary": {s: 0 for s in CAMPAIGN_STATES} | {"BLOCKED": 1}, "runs": []}
+    target = data_dir / site_id / "campaign_status.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp = target.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    temp.replace(target)
 
 
 def _routed_discharge_from_delft3d(cfg, scenario_id: str, data_dir: Path, sph_run_id: str,
@@ -319,6 +406,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--demo", action="store_true", help="four short D-Flow FM scenarios for demo training")
     parser.add_argument("--data-dir", type=Path, help="override data root (also sets SIH26_DATA_DIR)")
     parser.add_argument("--sites-dir", type=Path, help="directory containing site YAML files")
+    parser.add_argument("--production", action="store_true",
+                        help="Feature 13: refuse unless the production-readiness gate is READY")
     args = parser.parse_args(argv)
 
     if args.data_dir is not None:
@@ -329,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.model == "dflowfm":
             job_id, results = run_dflowfm_campaign(args.site_id, conn, sites_dir=args.sites_dir, extra=args.extra,
-                                                    dry_run=args.dry_run, demo=args.demo)
+                                                    dry_run=args.dry_run, demo=args.demo, production=args.production)
         elif args.model == "sph":
             job_id, results = run_sph_campaign(args.site_id, conn)
         else:
@@ -338,7 +427,11 @@ def main(argv: list[str] | None = None) -> int:
         conn.close()
 
     if job_id is None:
-        print(f"{args.site_id}: no campaign scenarios")
+        for r in results:
+            print(f"  {r.status:9s} {r.run_id or r.scenario_id}" + (f" -- {r.reason}" if r.reason else ""))
+        if any(r.status == "blocked" for r in results):
+            return 2
+        print(f"{args.site_id}: no campaign scenarios queued")
         return 0
     print(f"{args.site_id}: campaign job {job_id}")
     for r in results:

@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "site_readiness.schema.json",
+  "title": "SiteReadiness (Feature 13, GET /sites/{site_id}/readiness)",
+  "type": "object",
+  "required": [
+    "site_id",
+    "model",
+    "evaluated_at",
+    "production_verdict",
+    "config_loaded",
+    "inputs",
+    "blocking",
+    "counts",
+    "runs",
+    "run_counts",
+    "caveats"
+  ],
+  "properties": {
+    "site_id": {
+      "type": "string"
+    },
+    "model": {
+      "enum": [
+        "delft3d"
+      ]
+    },
+    "evaluated_at": {
+      "type": "string"
+    },
+    "production_verdict": {
+      "enum": [
+        "READY",
+        "BLOCKED"
+      ]
+    },
+    "config_loaded": {
+      "type": "boolean"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "category",
+          "status",
+          "blocking",
+          "detail"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "site_config",
+              "artifact",
+              "shared_gate",
+              "checklist"
+            ]
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "BLOCKED",
+              "PLACEHOLDER",
+              "CONTROLLED_PASS"
+            ]
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "blocking": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "scenario_id",
+          "model",
+          "status",
+          "registry_status",
+          "queryable"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "scenario_id": {
+            "type": "string"
+          },
+          "model": {
+            "enum": [
+              "delft3d",
+              "sph"
+            ]
+          },
+          "status": {
+            "enum": [
+              "ACCEPTED",
+              "PILOT",
+              "FAILED_ACCEPTANCE",
+              "FAILED",
+              "QUEUED",
+              "RUNNING",
+              "NOT_EVALUATED"
+            ]
+          },
+          "registry_status": {
+            "type": "string"
+          },
+          "acceptance_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queryable": {
+            "type": "boolean"
+          },
+          "failed_checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unavailable_checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "run_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "caveats": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/Caveat"
+      }
+    }
+  }
+}

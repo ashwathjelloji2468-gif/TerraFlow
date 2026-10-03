@@ -75,6 +75,15 @@ def resolve_registered_run(site_id: str, scenario_id: str, model: str, query_id:
     run_meta = json.loads(run_meta_path.read_text(encoding="utf-8"))
     if run_meta.get("run_id") != row["run_id"] or run_meta.get("scenario_id") != scenario_id:
         raise ValueError("run_meta.json identity does not match the registered run/scenario")
+    # Feature 13: a D-Flow FM run is served only when ACCEPTED by m3_dflowfm.acceptance, or when it was
+    # explicitly registered as a PILOT run (run_registration --pilot). Anything else -- including a
+    # run registered before acceptance existed -- stays not found rather than being shown as a result.
+    from backend.m0_api import run_registration
+    if model == "delft3d" and not run_registration.is_queryable(run_meta):
+        raise FileNotFoundError(
+            f"registered {model} run for {site_id}/{scenario_id} is not accepted "
+            f"(acceptance: {run_registration.acceptance_status(run_meta) or 'not evaluated'}); "
+            "register it with `python -m backend.m0_api.run_registration register`")
     extent_threshold_m = run_meta.get("thresholds", {}).get("extent_m")
     if not isinstance(extent_threshold_m, (int, float)) or extent_threshold_m < 0:
         raise ValueError("run_meta.json does not contain a valid thresholds.extent_m")
@@ -106,6 +115,8 @@ def resolve_registered_run(site_id: str, scenario_id: str, model: str, query_id:
         max_velocity = float(np.max(velocity[vvalid])) if vvalid.any() else None
 
     extra_caveats: list[dict] = []
+    if run_meta.get("run_class") == "pilot":
+        extra_caveats.append(dict(run_registration.PILOT_CAVEAT))
     diagnostics: dict = {}
     if model == "delft3d":
         # The DEM matching this run's mesh (config/registered_runs.yaml `terrain_site_id`, e.g. the
@@ -210,6 +221,8 @@ def resolve_registered_run(site_id: str, scenario_id: str, model: str, query_id:
                        "input_forcing_status": run_meta.get("input_forcing_status"),
                        "scientific_claim": run_meta.get("scientific_claim"),
                        "input_forcing_note": run_metadata.input_forcing_note(row["run_id"], run_meta),
+                       "run_class": run_meta.get("run_class"),
+                       "acceptance_status": run_registration.acceptance_status(run_meta),
                        "solver": run_meta.get("solver") or model,
                        "solver_version": run_meta.get("solver_version") or run_meta.get("kernel_version"),
                        "run_completed_at": run_meta.get("completed_at") or run_meta.get("finished_at"),
